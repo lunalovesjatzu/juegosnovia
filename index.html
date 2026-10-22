@@ -80,6 +80,10 @@ input{user-select:text;-webkit-user-select:text}
 #twG{position:relative;width:min(440px,96vw);height:10px;border-radius:6px;background:linear-gradient(90deg,#ef4444,#f59e0b 22%,#22c55e 42%,#22c55e 58%,#f59e0b 78%,#ef4444)}
 #twG i{position:absolute;top:-4px;left:50%;width:6px;height:18px;border-radius:3px;background:#fff;transform:translateX(-50%);box-shadow:0 0 3px rgba(0,0,0,.5)}
 #twG i#twP{background:transparent;border:2px solid #fff;display:none}
+#twT .wait{font-size:18px;font-weight:bold;opacity:.9}
+#invList{display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow-y:auto;touch-action:pan-y;text-align:left}
+#invList .item{background:#f6e3ef}
+#invList .msg{color:var(--mt)}
 #twDrag{position:fixed;z-index:50;opacity:.85;pointer-events:none;display:none;gap:2px}
 #twDrag div{border-radius:5px}
 #twDrag div.on{box-shadow:inset 0 -3px 0 rgba(0,0,0,.15)}
@@ -92,8 +96,8 @@ input{user-select:text;-webkit-user-select:text}
   <div class="game"><b>Block Blast</b><button class="btn" id="play">Jugar</button><p class="sub" id="best" style="margin-top:10px"></p></div>
   <div class="game"><b>Torre Tetris</b>
     <div style="display:flex;gap:8px;justify-content:center">
-      <button class="btn s" id="tw1">1 jugador</button>
-      <button class="btn s" id="tw2">2 jugadores</button>
+      <button class="btn s" id="tw1">Contra IA</button>
+      <button class="btn s" id="tw2">Con un amigo</button>
     </div>
     <p class="sub" id="twBest" style="margin-top:8px"></p>
   </div>
@@ -167,6 +171,19 @@ input{user-select:text;-webkit-user-select:text}
   <p class="sub" style="margin:0;font-size:13px">Toca una pieza para girarla · arrástrala a la torre</p>
 </div>
 <div id="twDrag"></div>
+
+<div class="ov" id="inv"><div class="modal">
+  <h2 id="invT">Invitar amigo</h2>
+  <div id="invList"></div>
+  <p class="msg" id="invMsg" style="color:var(--mt)"></p>
+  <button class="btn r" id="invX">Cancelar</button>
+</div></div>
+<div class="ov" id="got"><div class="modal">
+  <h2>¡Te invitan!</h2>
+  <p id="gotM" style="margin:0"></p>
+  <button class="btn g" id="gotY">Aceptar</button>
+  <button class="btn r" id="gotN">Rechazar</button>
+</div></div>
 
 <div class="ov" id="lg"><div class="login">
   <h1 id="lt">Login</h1>
@@ -357,7 +374,7 @@ window.mergeBest=r=>{
 };
 // por si Firebase tarda o no hay internet, igual aparece el boton
 setTimeout(()=>{if(!$('acct').firstChild)setAcct('out')},4000);
-document.addEventListener('touchmove',e=>{if(!e.target.closest('.pbox'))e.preventDefault()},{passive:false});
+document.addEventListener('touchmove',e=>{if(!e.target.closest('.pbox,#invList'))e.preventDefault()},{passive:false});
 </script>
 
 <script>
@@ -376,15 +393,18 @@ const TCOL={I:'#38bdf8',O:'#f5d90a',T:'#a855f7',S:'#22c55e',Z:'#ef4444',J:'#3b5b
 const KEYS=Object.keys(TETRO);
 const rotM=m=>{const h=m.length,w=m[0].length,o=[];for(let c=0;c<w;c++){o.push([]);for(let r=h-1;r>=0;r--)o[c].push(m[r][c])}return o};
 const cellsOf=m=>{const a=[];m.forEach((row,r)=>row.forEach((v,c)=>{if(v)a.push([r,c])}));return a};
-const newP=()=>{const k=KEYS[Math.random()*KEYS.length|0];return{m:TETRO[k].map(r=>r.slice()),c:TCOL[k]}};
+const newP=rnd=>{const k=KEYS[(rnd||Math.random)()*KEYS.length|0];return{m:TETRO[k].map(r=>r.slice()),c:TCOL[k],rot:0}};
 
 const cv=$('twC'),ctx=cv.getContext('2d');
 cv.width=CW;cv.height=CH;
 
-let mode=1,turn=0,names=['Jugador 1','Jugador 2'],G2=[],placed=0,tray=[];
+let mode=1,turn=0,names=['Tú','IA 🤖'],G2=[],placed=0,tray=[];          // mode 1 = contra la IA, 2 = con un amigo (en línea)
+let seed=1,meIdx=0,online=null,mv=0,seen=0,queue=[],ghost=null,thinking=false,unwatch=null;
 let ang=0,av=0,tgt=0,falling=0,over=false,drag=null,raf=0,trayTop=0;
-let tbest=0;try{tbest=+localStorage.getItem('bt_best')||0}catch(e){}
-const showBest=()=>{$('twBest').textContent='Récord (1 jugador): '+tbest};
+let rv=0,thud=false,gid=0,sndCool=0;   // velocidad del balancín, golpe, id de partida, pausa de sonido
+let pieces=[],bodies=[];            // piezas puestas y piezas cayendo (gravedad)
+let wins=0;try{wins=+localStorage.getItem('bt_wins')||0}catch(e){}
+const showBest=()=>{$('twBest').textContent='Victorias contra la IA: '+wins};
 showBest();
 
 const cx=c=>(c-C/2)*S;
@@ -398,8 +418,8 @@ function dropRow(p,col){
   let r=-h;
   if(blocked(r))return -1;
   while(!blocked(r+1))r++;
+  if(cs.some(([dr])=>r+dr<0))return -1;                                          // se sale por arriba (torre llena)
   if(!cs.some(([dr,dc])=>{const y=r+dr+1;return y<R&&G2[y][col+dc]}))return -1; // sin apoyo
-  if(cs.some(([dr])=>r+dr<0))return -1;                                          // se sale por arriba
   return r;
 }
 /* cuánto se corre el centro de masa de la torre respecto al centro */
@@ -421,58 +441,270 @@ function anyMove(ps){
 }
 
 /* ---------- partida ---------- */
-function start(m){
-  mode=m;turn=0;placed=0;over=false;falling=0;ang=0;av=0;tgt=0;drag=null;
-  names=[window.myName||'Jugador 1','Jugador 2'];
+// mismo "seed" = mismas piezas para los dos jugadores en línea
+const rng=a=>()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+const genTray=k=>{const r=rng(seed*7919+k*104729+1);return[newP(r),newP(r),newP(r)]};
+const canPlay=()=>!over&&!ghost&&!thinking&&turn===meIdx;
+
+function leave(){                                   // salir de la partida (avisa al amigo si seguía en juego)
+  if(unwatch){unwatch();unwatch=null}
+  if(online&&!over&&window.FB)FB.leaveGame(online.id);
+  online=null;ghost=null;thinking=false;gid++;
+}
+function start(m,g){
+  leave();
+  mode=m;turn=0;placed=0;mv=0;over=false;falling=0;ang=0;av=0;tgt=0;drag=null;pieces=[];bodies=[];gid++;thud=false;rv=0;
+  ghost=null;thinking=false;queue=[];seen=0;
+  if(m===2){online=g;seed=g.seed;meIdx=g.me;names=g.names.slice()}
+  else{online=null;seed=(Math.random()*2147483646|0)+1;meIdx=0;names=[window.myName||'Tú','IA 🤖']}
   G2=[...Array(R)].map(()=>Array(C).fill(0));
   for(let c=BL;c<=BR;c++)G2[R-1][c]='B';
   go('tw');fit();newTray();
+  if(m===2)unwatch=FB.watchGame(g.id,onGame);
   if(!raf)raf=requestAnimationFrame(loop);
   beep(600,.1);
 }
 function updateInfo(){
-  $('twInfo').textContent=mode===2?'Turno: '+names[turn]:'Piezas: '+placed+' · Récord: '+tbest;
+  $('twInfo').textContent=over?'Fin de la partida':thinking?'IA pensando…':(turn===meIdx?'Tu turno':'Turno: '+names[turn]);
 }
 function newTray(){
-  tray=[newP(),newP(),newP()];
+  tray=genTray(mv);
   updateInfo();drawTray();
-  if(!anyMove(tray))end('Torre llena',mode===2?'Ya no caben más piezas: ¡empate!':'Pusiste '+placed+' piezas');
+  if(!anyMove(tray)){                         // ya no cabe nada: la torre también se desploma
+    const o=offset();
+    fall(o>=0?1:-1,'Torre llena','Ya no caben más piezas: ¡empate!',-1);
+    return;
+  }
+  if(mode===1&&turn===1)aiPlay();
 }
-function nextTurn(){
-  if(mode===2)turn^=1;
-  newTray();
-}
-function place(i,col){
+function nextTurn(){turn^=1;mv++;newTray()}
+function place(i,col,remote){
   const p=tray[i],r=dropRow(p,col);
-  if(r<0){beep(180,.15,'triangle',.1);vib(25);return}
+  if(r<0){if(!remote){beep(180,.15,'triangle',.1);vib(25)}return}
+  if(mode===2&&!remote){FB.sendMove(online.id,{k:mv,u:online.myUid,i:i,r:(p.rot||0)%4,c:col});seen=mv+1}
   cellsOf(p.m).forEach(([dr,dc])=>{G2[r+dr][col+dc]=p.c});
+  pieces.push({c:p.c,cells:cellsOf(p.m).map(([dr,dc])=>[r+dr,col+dc])});
   placed++;
   const off=offset();
   tgt=off*DEG*Math.PI/180;
   beep(420,.08,'sine',.15);beep(630,.08,'sine',.1,.04);vib(12);
-  if(Math.abs(off)>LIM)return fall(off>0?1:-1);
+  if(Math.abs(off)>LIM){
+    const loser=turn;
+    return fall(off>0?1:-1,'¡Se cayó la torre!',
+      loser===meIdx?'La tiraste tú. ¡Gana '+names[1-meIdx]+'!':names[loser]+' la tiró. ¡Ganaste!',1-loser);
+  }
   if(Math.abs(off)>LIM*.7)beep(140,.25,'sawtooth',.06,.1);
   nextTurn();
 }
-function fall(dir){
-  falling=dir;av=0;over=true;
+/* muestra la pieza "fantasma" un momento antes de soltarla (jugadas de la IA o del amigo) */
+function playGhost(p,col,row,fn){
+  const g=gid;ghost={m:p.m,c:p.c,col:col,r:row};
+  beep(500,.05,'sine',.08);updateInfo();
+  setTimeout(()=>{if(g!==gid||over)return;ghost=null;fn()},700);
+}
+
+/* ---------- amigo en línea ---------- */
+function onGame(d){
+  if(!online||over)return;
+  if(d.left&&d.left!==online.myUid){end('Tu amigo se fue',names[1-meIdx]+' salió de la partida. ¡Ganaste!',meIdx);return}
+  const ms=d.moves||[];
+  while(seen<ms.length)queue.push(ms[seen++]);
+  drain();
+}
+function drain(){
+  if(ghost||over||!queue.length||!online)return;
+  const m=queue.shift();
+  if(m.k!==mv||m.u===online.myUid)return drain();
+  const p=tray[m.i];if(!p)return drain();
+  for(let k=0;k<(m.r|0);k++)p.m=rotM(p.m);
+  p.rot=m.r|0;
+  const row=dropRow(p,m.c);if(row<0)return drain();
+  playGhost(p,m.c,row,()=>{place(m.i,m.c,true);drain()});
+}
+
+/* ---------- la IA ---------- */
+function withPiece(c,fn){                           // pone la pieza un momento en la torre para probar qué pasaría
+  const cs=cellsOf(c.m);
+  cs.forEach(([dr,dc])=>{G2[c.row+dr][c.col+dc]='x'});
+  const v=fn();
+  cs.forEach(([dr,dc])=>{G2[c.row+dr][c.col+dc]=0});
+  return v;
+}
+function hasSafe(ps){                               // ¿hay alguna jugada que no tire la torre?
+  return ps.some(p=>{
+    let m=p.m;
+    for(let k=0;k<4;k++){
+      for(let col=0;col<=C-m[0].length;col++){
+        const row=dropRow({m:m},col);
+        if(row>=0&&withPiece({m:m,col:col,row:row},()=>Math.abs(offset())<=LIM))return true;
+      }
+      m=rotM(m);
+    }
+    return false;
+  });
+}
+function aiChoose(){
+  const cands=[];
+  tray.forEach((p,i)=>{
+    let m=p.m;const done={};
+    for(let rot=0;rot<4;rot++){
+      const key=JSON.stringify(m);
+      if(!done[key]){
+        done[key]=1;
+        for(let col=0;col<=C-m[0].length;col++){
+          const row=dropRow({m:m},col);
+          if(row>=0)cands.push({i:i,m:m,rot:rot,col:col,row:row});
+        }
+      }
+      m=rotM(m);
+    }
+  });
+  cands.forEach(c=>{c.off=withPiece(c,()=>offset())});
+  const safe=cands.filter(c=>Math.abs(c.off)<=LIM);
+  if(!safe.length){cands.sort((a,b)=>Math.abs(a.off)-Math.abs(b.off));return cands[0]}   // no hay escapatoria
+  if(Math.random()<.15)return safe[Math.random()*safe.length|0];                         // a veces se equivoca
+  safe.forEach(c=>{
+    // prueba piezas al azar: ¿a cuántas el rival ya no les encuentra una jugada segura?
+    let stuck=0;const K=8;
+    withPiece(c,()=>{for(let k=0;k<K;k++){const t=[newP(),newP(),newP()];if(anyMove(t)&&!hasSafe(t))stuck++}});
+    c.score=stuck/K*10-Math.abs(c.off)*.1+Math.random()*.6;
+  });
+  safe.sort((a,b)=>b.score-a.score);
+  return safe[0];
+}
+function aiPlay(){
+  const g=gid;thinking=true;updateInfo();
+  setTimeout(()=>{
+    if(g!==gid||over)return;
+    const c=aiChoose();
+    thinking=false;
+    const p=tray[c.i];p.m=c.m;p.rot=c.rot;
+    playGhost(p,c.col,c.row,()=>place(c.i,c.col,true));
+  },600+Math.random()*600);
+}
+function fall(dir,t,m,w){
+  falling=dir;av=0;over=true;thud=false;
+  const g=gid;
+  // cada pieza se vuelve un cuerpo con masa, inercia y gravedad, justo donde estaba en la torre inclinada
+  const ca=Math.cos(ang),sa=Math.sin(ang),tx=OX+RR*ang;
+  bodies=pieces.map(pc=>{
+    const pts=pc.cells.map(([r,c])=>[cx(c)+S/2,cy(r)+S/2]);
+    const mx=pts.reduce((t,q)=>t+q[0],0)/pts.length,my=pts.reduce((t,q)=>t+q[1],0)/pts.length;
+    const loc=pts.map(q=>[q[0]-mx,q[1]-my]);
+    return{
+      c:pc.c,hit:false,loc:loc,m:loc.length,
+      I:loc.reduce((t,q)=>t+q[0]*q[0]+q[1]*q[1],0)+loc.length*S*S/6,
+      rad:Math.max(...loc.map(q=>Math.hypot(q[0],q[1])))+S/2,
+      x:tx+mx*ca-my*sa,y:OY+mx*sa+my*ca,rot:ang,
+      vx:dir*Math.random()*.4,vy:-Math.random()*.4,w:dir*Math.random()*.01
+    };
+  });
   [300,240,180,120].forEach((f,k)=>beep(f,.25,'sawtooth',.1,k*.12));
   vib([60,40,100]);
   setTimeout(()=>{
-    if(!$('tw').classList.contains('on'))return;
-    if(mode===2)end('¡Se cayó la torre!',names[turn]+' la tiró. ¡Gana '+names[1-turn]+'!');
-    else end('¡Se cayó la torre!','Pusiste '+placed+' piezas');
-  },1100);
+    if(g!==gid||!$('tw').classList.contains('on'))return;
+    end(t,m,w);
+  },3200);
 }
-function end(t,m){
+const cellsW=b=>{const c=Math.cos(b.rot),s=Math.sin(b.rot);return b.loc.map(q=>[b.x+q[0]*c-q[1]*s,b.y+q[0]*s+q[1]*c])};
+function applyJ(a,b,jx,jy,rax,ray,rbx,rby){
+  a.vx+=jx/a.m;a.vy+=jy/a.m;a.w+=(rax*jy-ray*jx)/a.I;
+  if(b){b.vx-=jx/b.m;b.vy-=jy/b.m;b.w-=(rbx*jy-rby*jx)/b.I}
+}
+/* choque entre un cuerpo (a) y otro (b) o una superficie fija (b=null). n apunta hacia a */
+function hit(a,b,px,py,nx,ny,depth,vsx,vsy){
+  const imA=1/a.m,iiA=1/a.I,imB=b?1/b.m:0,iiB=b?1/b.I:0,tot=imA+imB;
+  const corr=Math.max(depth-.2,0)*.5;                 // los saca del otro para que no se atraviesen
+  a.x+=nx*corr*imA/tot;a.y+=ny*corr*imA/tot;
+  if(b){b.x-=nx*corr*imB/tot;b.y-=ny*corr*imB/tot}
+  const rax=px-a.x,ray=py-a.y,rbx=b?px-b.x:0,rby=b?py-b.y:0;
+  const rel=()=>[
+    a.vx-a.w*ray-(b?b.vx-b.w*rby:vsx),
+    a.vy+a.w*rax-(b?b.vy+b.w*rbx:vsy)
+  ];
+  let r=rel();
+  const vn=r[0]*nx+r[1]*ny;
+  if(vn>=0)return;
+  const ran=rax*ny-ray*nx,rbn=b?rbx*ny-rby*nx:0;
+  const k=tot+ran*ran*iiA+rbn*rbn*iiB;
+  const j=-(1+(vn<-3?.25:0))*vn/k;                   // rebote suave si pega fuerte
+  applyJ(a,b,nx*j,ny*j,rax,ray,rbx,rby);
+  r=rel();                                            // fricción: así se frenan y no patinan para siempre
+  const fx=-ny,fy=nx,vt=r[0]*fx+r[1]*fy;
+  const rat=rax*fy-ray*fx,rbt=b?rbx*fy-rby*fx:0;
+  const kt=tot+rat*rat*iiA+rbt*rbt*iiB;
+  const lim=.55*j;
+  const jt=Math.max(-lim,Math.min(lim,-vt/kt));
+  applyJ(a,b,fx*jt,fy*jt,rax,ray,rbx,rby);
+}
+/* gravedad: las piezas caen, chocan con la mesa, con el balancín y entre ellas */
+function stepBodies(){
+  const SUB=4,dt=1/SUB,gr=.5,r=S/2,floor=OY+RR;
+  const rc=Math.cos(ang),rs=Math.sin(ang),bx=OX+RR*ang,TOP=YB-S;
+  if(sndCool>0)sndCool--;
+  for(let st=0;st<SUB;st++){
+    bodies.forEach(b=>{b.vy+=gr*dt;b.x+=b.vx*dt;b.y+=b.vy*dt;b.rot+=b.w*dt;b.vx*=.9995;b.w*=.998});
+    for(let it=0;it<4;it++){
+      const W=bodies.map(cellsW);
+      bodies.forEach((b,i)=>{
+        W[i].forEach(([x,y])=>{
+          if(y+r>floor){                                           // mesa
+            if(b.vy>3&&!b.hit&&sndCool<=0){b.hit=true;sndCool=6;beep(110+Math.random()*120,.08,'square',.05)}
+            hit(b,null,x,floor,0,-1,y+r-floor,0,0);
+          }
+          if(x-r<0)hit(b,null,0,y,1,0,r-x,0,0);                    // paredes
+          else if(x+r>CW)hit(b,null,CW,y,-1,0,x+r-CW,0,0);
+          const dx=x-bx,dy=y-OY,lx=dx*rc+dy*rs,ly=-dx*rs+dy*rc;     // balancín (en sus coordenadas)
+          let nlx=0,nly=0,dep=0;
+          if(ly>=YB){
+            const d=Math.hypot(lx,ly);
+            if(d<RR+r&&d>1e-6){nlx=lx/d;nly=ly/d;dep=RR+r-d}
+          }else{
+            const qx=Math.max(-BH,Math.min(BH,lx)),qy=Math.max(TOP,Math.min(YB,ly));
+            const ex=lx-qx,ey=ly-qy,d=Math.hypot(ex,ey);
+            if(d>1e-6){if(d<r){nlx=ex/d;nly=ey/d;dep=r-d}}
+            else{nlx=0;nly=-1;dep=ly-TOP+r}
+          }
+          if(dep>0){
+            const nx=nlx*rc-nly*rs,ny=nlx*rs+nly*rc,px=x-nx*r,py=y-ny*r;
+            hit(b,null,px,py,nx,ny,dep,RR*rv-rv*(py-OY),rv*(px-bx));
+          }
+        });
+      });
+      for(let i=0;i<bodies.length;i++)for(let j=i+1;j<bodies.length;j++){   // piezas contra piezas
+        const a=bodies[i],c=bodies[j];
+        if(Math.hypot(a.x-c.x,a.y-c.y)>a.rad+c.rad)continue;
+        for(const [x1,y1] of W[i])for(const [x2,y2] of W[j]){
+          const dx=x1-x2,dy=y1-y2,d2=dx*dx+dy*dy;
+          if(d2>=S*S||d2<1e-6)continue;
+          const d=Math.sqrt(d2);
+          hit(a,c,(x1+x2)/2,(y1+y2)/2,dx/d,dy/d,S-d,0,0);
+        }
+      }
+    }
+  }
+}
+function end(t,m,w){
   over=true;updateInfo();
-  if(mode===1&&placed>tbest){tbest=placed;try{localStorage.setItem('bt_best',tbest)}catch(e){};showBest();updateInfo()}
-  show(t,m,'Jugar de nuevo',()=>{hide();start(mode)},'Menú');
+  const out=()=>{leave();menu()};
+  if(mode===1){
+    if(w===0){wins++;try{localStorage.setItem('bt_wins',wins)}catch(e){}showBest()}
+    show(t,m,'Jugar de nuevo',()=>{hide();start(1)},'Menú',out);
+  }else{
+    const opp=online&&online.opp;
+    if(online)FB.endGame(online.id);                 // borra el registro de la partida en Firebase
+    show(t,m,'Revancha',()=>{hide();leave();menu();if(opp)FB.invite(opp)},'Menú',out);
+  }
 }
 
 /* ---------- bandeja de piezas ---------- */
 function drawTray(){
   const t=$('twT');t.innerHTML='';
+  if(turn!==meIdx){                              // no es tu turno: solo ves la torre y este aviso
+    const w=document.createElement('span');w.className='wait';
+    w.textContent=mode===1?names[turn]+' está pensando…':'Esperando a '+names[turn]+'…';
+    t.appendChild(w);return;
+  }
   tray.forEach((p,i)=>{
     const s=document.createElement('div');s.className='slot';
     const w=p.m[0].length,h=p.m.length,sz=Math.min(24,Math.floor(84/Math.max(w,h)));
@@ -497,7 +729,7 @@ function colAt(x,p){
   return Math.max(0,Math.min(C-p.m[0].length,c));
 }
 function down(e,i){
-  if(over)return;
+  if(!canPlay())return;
   e.preventDefault();
   drag={i:i,sx:e.clientX,sy:e.clientY,x:e.clientX,y:e.clientY,on:false,touch:e.pointerType!=='mouse'};
   window.addEventListener('pointermove',move);
@@ -539,7 +771,7 @@ function up(e){
   const d=drag;stopDrag();
   if(!d||over)return;
   if(!d.on){                                   // un toque: gira la pieza
-    tray[d.i].m=rotM(tray[d.i].m);
+    tray[d.i].m=rotM(tray[d.i].m);tray[d.i].rot=((tray[d.i].rot||0)+1)%4;
     beep(520,.05,'sine',.08);vib(6);drawTray();
     return;
   }
@@ -564,7 +796,7 @@ function draw(){
   for(let r=0;r<R;r++)for(let c=0;c<C;c++){
     const v=G2[r][c];if(!v)continue;
     if(v==='B'){ctx.fillStyle='#2b2b2b';ctx.fillRect(cx(c),cy(r),S,S);ctx.fillStyle='#444';ctx.fillRect(cx(c),cy(r),S,3)}
-    else cell(cx(c),cy(r),v,1);
+    else if(!falling)cell(cx(c),cy(r),v,1);
   }
   let pred=null;
   if(drag&&drag.on&&!over&&drag.y<trayTop-6){                          // sombra de dónde va a caer
@@ -576,7 +808,13 @@ function draw(){
       cellsOf(p.m).forEach(([dr,dc])=>cell(cx(col+dc),cy(dr),'#c62828',.35));
     }
   }
+  if(ghost)cellsOf(ghost.m).forEach(([dr,dc])=>cell(cx(ghost.col+dc),cy(ghost.r+dr),ghost.c,.55));
   ctx.restore();
+  bodies.forEach(b=>{
+    ctx.save();ctx.translate(b.x,b.y);ctx.rotate(b.rot);
+    b.loc.forEach(([lx,ly])=>cell(lx-S/2,ly-S/2,b.c,1));
+    ctx.restore();
+  });
   const ratio=Math.max(-1,Math.min(1,ang/LIMA));
   $('twM').style.left=(50+ratio*50)+'%';
   const pe=$('twP');
@@ -585,9 +823,15 @@ function draw(){
 }
 function loop(){
   if(!$('tw').classList.contains('on')){raf=0;return}
-  if(falling){av+=.003;ang+=falling*av}
+  if(falling){
+    const lim=.78,old=ang;                           // hasta que la esquina de la base toca la mesa
+    av+=.003;ang+=falling*av;                        // la gravedad la jala cada vez más fuerte
+    if(falling*ang>=lim){ang=falling*lim;av=0;if(!thud){thud=true;beep(90,.25,'square',.1);vib(40)}}
+    rv=ang-old;
+    stepBodies();
+  }
   else{av+=(tgt-ang)*.09;av*=.8;ang+=av}
-  draw();
+  try{draw()}catch(e){console.error(e)}
   raf=requestAnimationFrame(loop);
 }
 function fit(){
@@ -598,14 +842,18 @@ function fit(){
 window.addEventListener('resize',fit);
 
 $('tw1').onclick=()=>start(1);
-$('tw2').onclick=()=>start(2);
-$('twBack').onclick=menu;
+$('tw2').onclick=()=>{
+  if(!window.FB||!FB.openInvite){window.openLogin('login');lmsg('Firebase no cargó, revisa tu internet');return}
+  FB.openInvite();                                  // elegir a qué amigo invitar
+};
+$('twBack').onclick=()=>{leave();menu()};
+window.TW={startOnline:g=>start(2,g)};
 })();
 </script>
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import {getAuth,setPersistence,browserLocalPersistence,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteDoc,collection,query,where,onSnapshot,runTransaction,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteDoc,collection,query,where,onSnapshot,runTransaction,arrayUnion,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 // config de Firebase del proyecto basta-para-mi-novia
 const firebaseConfig={
@@ -631,6 +879,7 @@ let registering=false;
 let me=null;              // mis datos: {uid,name,photo,status,color,best}
 let reqFrom=[],reqTo=[];  // solicitudes que mande / que me mandaron
 let unsubs=[],selColor=COLS[1],rtok=0,bt=null;
+let incoming=[],shownInv='',doneInv=new Set(),waitUnsub=null,waitTimer=0,waitId='';
 const ucache={};
 
 const msg=t=>{$('lmsg').textContent=t};
@@ -693,7 +942,8 @@ function listen(uid){
   const q2=query(collection(db,'requests'),where('to','==',uid));
   unsubs=[
     onSnapshot(q1,s=>{reqFrom=s.docs.map(d=>({id:d.id,...d.data()}));changed()},()=>{}),
-    onSnapshot(q2,s=>{reqTo=s.docs.map(d=>({id:d.id,...d.data()}));changed()},()=>{})
+    onSnapshot(q2,s=>{reqTo=s.docs.map(d=>({id:d.id,...d.data()}));changed()},()=>{}),
+    onSnapshot(query(collection(db,'games'),where('to','==',uid)),s=>{incoming=s.docs.map(d=>({id:d.id,...d.data()}));checkInv()},()=>{})
   ];
 }
 function changed(){
@@ -703,7 +953,7 @@ function changed(){
 
 async function refresh(u,ask){
   if(!u){
-    stopListen();me=null;reqFrom=[];reqTo=[];window.setBadge(0);
+    stopListen();me=null;reqFrom=[];reqTo=[];incoming=[];window.setBadge(0);closeInv();$('got').classList.remove('on');
     if($('pf').classList.contains('on'))window.go('menu');
     return window.setAcct('out');
   }
@@ -852,6 +1102,94 @@ async function addFriend(){
 $('fAdd').onclick=addFriend;
 $('fIn').onkeydown=e=>{if(e.key==='Enter')addFriend()};
 
+
+/* ---------- invitar a un amigo a Torre Tetris (2 jugadores en línea) ---------- */
+const imsg=t=>{$('invMsg').textContent=t};
+function stopWait(){if(waitUnsub){waitUnsub();waitUnsub=null}clearTimeout(waitTimer)}
+function closeInv(){stopWait();waitId='';$('inv').classList.remove('on')}
+const cancelInvite=id=>{
+  const ref=doc(db,'games',id);
+  return runTransaction(db,async tx=>{const s=await tx.get(ref);if(s.exists()&&s.data().status==='invited')tx.delete(ref)}).catch(()=>{});
+};
+async function myFriends(){
+  if(!me)return [];
+  const my=me.uid,out=[];
+  await Promise.all([...reqFrom,...reqTo].filter(r=>r.status==='accepted').map(async r=>{
+    const id=r.from===my?r.to:r.from,u=await getUser(id);
+    out.push({uid:id,name:u.name||(r.from===my?r.toName:r.fromName),user:u});
+  }));
+  return out;
+}
+async function showInvList(){
+  stopWait();waitId='';
+  $('invT').textContent='Invitar amigo';imsg('');$('invX').textContent='Cancelar';
+  const L=$('invList');L.innerHTML='<p class="msg">Cargando...</p>';
+  $('inv').classList.add('on');
+  const fr=await myFriends();
+  L.innerHTML='';
+  if(!fr.length){L.innerHTML='<p class="msg">Todavía no tienes amigos. Agrégalos en "Perfil y amigos".</p>';return}
+  fr.forEach(f=>L.appendChild(row({...f.user,name:f.name},f.name,f.user.status||('Récord: '+(f.user.best||0)),[
+    btn('Invitar','g',()=>sendInvite(f))
+  ])));
+}
+async function sendInvite(f){
+  if(!me)return;
+  const id=me.uid+'_'+Date.now();
+  try{
+    await setDoc(doc(db,'games',id),{
+      from:me.uid,to:f.uid,fromName:me.name,toName:f.name,
+      seed:(Math.random()*2147483646|0)+1,status:'invited',moves:[],left:'',createdAt:serverTimestamp()
+    });
+  }catch(e){return imsg(errs[e.code]||('No se pudo invitar: '+(e.code||e.message)))}
+  waitId=id;
+  $('invT').textContent='Esperando...';$('invX').textContent='Cancelar invitación';imsg('');
+  const L=$('invList');L.innerHTML='';
+  const p=document.createElement('p');p.className='msg';p.textContent='Esperando a que '+f.name+' acepte la invitación';L.appendChild(p);
+  waitUnsub=onSnapshot(doc(db,'games',id),s=>{
+    const d=s.data();if(!d||waitId!==id)return;
+    if(d.status==='playing'){closeInv();beginGame(id,d,0)}
+    else if(d.status==='declined'){deleteDoc(doc(db,'games',id)).catch(()=>{});showInvList().then(()=>imsg(f.name+' rechazó la invitación'))}
+  },()=>{});
+  waitTimer=setTimeout(()=>{cancelInvite(id);showInvList().then(()=>imsg(f.name+' no respondió'))},90000);
+}
+$('invX').onclick=()=>{if(waitId)cancelInvite(waitId);closeInv()};
+function beginGame(id,d,idx){
+  if(!window.TW||!me)return;
+  window.TW.startOnline({
+    id:id,seed:d.seed,me:idx,myUid:me.uid,names:[d.fromName,d.toName],
+    opp:{uid:idx?d.from:d.to,name:idx?d.fromName:d.toName}
+  });
+}
+// invitaciones que me llegan
+function checkInv(){
+  const fresh=incoming.filter(g=>g.status==='invited'&&!doneInv.has(g.id)&&
+    !(g.createdAt&&g.createdAt.toMillis&&Date.now()-g.createdAt.toMillis()>120000));
+  const cur=fresh.find(g=>g.id===shownInv)||fresh[0];
+  if(!cur){shownInv='';$('got').classList.remove('on');return}
+  shownInv=cur.id;
+  $('gotM').textContent=cur.fromName+' te invita a jugar Torre Tetris';
+  $('got').classList.add('on');
+}
+$('gotY').onclick=async()=>{
+  const id=shownInv,g=incoming.find(x=>x.id===id);
+  if(!g)return;
+  doneInv.add(id);$('got').classList.remove('on');
+  try{
+    const ref=doc(db,'games',id);
+    await runTransaction(db,async tx=>{
+      const s=await tx.get(ref);
+      if(!s.exists()||s.data().status!=='invited')throw new Error('gone');
+      tx.update(ref,{status:'playing'});
+    });
+  }catch(e){return alert('Esa invitación ya no está disponible')}
+  closeInv();
+  beginGame(id,{...g,status:'playing'},1);
+};
+$('gotN').onclick=()=>{
+  const id=shownInv;doneInv.add(id);$('got').classList.remove('on');
+  updateDoc(doc(db,'games',id),{status:'declined'}).catch(()=>{});
+};
+
 /* ---------- funciones que usa el resto de la pagina ---------- */
 window.FB={
   async login(id,pass){
@@ -902,7 +1240,24 @@ window.FB={
       try{await updateDoc(doc(db,'users',uid),{best:n});if(me&&me.uid===uid)me.best=n}catch(e){}
     },3000);
   },
-  logout(){signOut(auth)}
+  logout(){signOut(auth)},
+  // ----- Torre Tetris en línea -----
+  openInvite(){
+    if(!me){
+      if(auth.currentUser){window.openLogin('claim');msg('Elige tu usuario para poder jugar con amigos')}
+      else{window.openLogin('login');msg('Inicia sesión para invitar a un amigo')}
+      return;
+    }
+    showInvList();
+  },
+  invite(f){if(!me)return;$('inv').classList.add('on');sendInvite(f)},
+  watchGame(id,cb){return onSnapshot(doc(db,'games',id),s=>{if(s.exists())cb(s.data())},()=>{})},
+  sendMove(id,m){
+    updateDoc(doc(db,'games',id),{moves:arrayUnion(m)})
+      .catch(e=>alert('No se pudo enviar tu jugada: '+(errs[e.code]||e.code||e.message)));
+  },
+  endGame(id){setTimeout(()=>deleteDoc(doc(db,'games',id)).catch(()=>{}),6000)},   // da tiempo a que el otro vea la última jugada
+  leaveGame(id){if(me)updateDoc(doc(db,'games',id),{left:me.uid}).catch(()=>{})}
 };
 
 let first=true;
