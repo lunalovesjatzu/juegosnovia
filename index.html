@@ -87,7 +87,38 @@ input{user-select:text;-webkit-user-select:text}
 #twDrag{position:fixed;z-index:50;opacity:.85;pointer-events:none;display:none;gap:2px}
 #twDrag div{border-radius:5px}
 #twDrag div.on{box-shadow:inset 0 -3px 0 rgba(0,0,0,.15)}
-</style></head><body>
+
+/* ---------- pestañas, chat y basta ---------- */
+#goPf{display:none!important}
+#menu{overflow-y:auto;justify-content:flex-start;touch-action:pan-y}
+#menu::before,#menu::after{content:"";flex:1 0 0}
+#menu>*{flex-shrink:0}
+#nav{position:fixed;left:0;right:0;bottom:0;z-index:60;display:none;justify-content:center;gap:8px;padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));background:rgba(91,33,198,.92)}
+body.nav #nav{display:flex}
+body.nav .screen{padding-bottom:80px}
+#nav button{position:relative;flex:1;max-width:150px;border:0;border-radius:14px;background:transparent;color:#fff;font:bold 13px Arial,sans-serif;padding:6px 0;cursor:pointer;opacity:.75}
+#nav button span{display:block;font-size:22px;line-height:1.1}
+#nav button.on{background:rgba(255,255,255,.22);opacity:1}
+#nav .bdg{position:absolute;top:0;left:calc(50% + 8px);margin:0}
+#chl,#cc{justify-content:flex-start}
+#chl .top{justify-content:center}
+#chList .msg{font-size:15px}
+#ccWho{display:flex;align-items:center;gap:8px;flex:1;justify-content:center;min-width:0;font-size:18px}
+#ccWho b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#ccMsgs{gap:6px}
+.bub{max-width:80%;padding:8px 12px;border-radius:16px 16px 16px 4px;background:#fff;color:#444;align-self:flex-start;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;user-select:text;-webkit-user-select:text}
+.bub.me{align-self:flex-end;border-radius:16px 16px 4px 16px;background:var(--purple);color:#fff}
+.bub small{display:block;opacity:.6;font-size:11px;text-align:right;margin-top:2px}
+.cbar{width:min(440px,96vw);display:flex;gap:8px}
+.cbar input{flex:1;min-width:0;border:0;border-radius:12px;padding:12px;font-size:16px;background:#fff5fb;color:#333;outline:none}
+#bsCat{font-size:30px;font-weight:bold;background:var(--card);padding:10px 22px;border-radius:16px;text-align:center}
+#bsLet{font-size:110px;line-height:1;font-weight:bold;letter-spacing:6px;text-shadow:0 0 20px rgba(0,0,0,.2)}
+.bsScore{display:flex;gap:12px;width:min(440px,96vw)}
+.bsScore .pl{flex:1;min-width:0;background:var(--card);border-radius:18px;padding:12px;text-align:center;display:flex;flex-direction:column;gap:8px}
+.bsScore .pl b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bsScore .pts{font-size:48px;font-weight:bold}
+.bsScore .pm{display:flex;gap:8px;justify-content:center}
+</style></head><body class="nav">
 
 <div class="screen on" id="menu">
   <div id="acct"></div>
@@ -100,6 +131,10 @@ input{user-select:text;-webkit-user-select:text}
       <button class="btn s" id="tw2">Con un amigo</button>
     </div>
     <p class="sub" id="twBest" style="margin-top:8px"></p>
+  </div>
+  <div class="game"><b>Basta</b>
+    <button class="btn s" id="bsPlay">Con un amigo</button>
+    <p class="sub" style="margin-top:8px">Letra y categoría compartidas</p>
   </div>
   <button class="btn p s" onclick="openSet()">Ajustes</button>
   <button class="btn p s" id="goPf" style="display:none">Perfil y amigos <i class="bdg" id="bdgM" style="display:none"></i></button>
@@ -171,6 +206,52 @@ input{user-select:text;-webkit-user-select:text}
   <p class="sub" style="margin:0;font-size:13px">Arrástrala a la torre (se gira sola para encajar) · debe apoyarse en la base u otra pieza</p>
 </div>
 <div id="twDrag"></div>
+
+<!-- lista de chats -->
+<div class="screen" id="chl">
+  <div class="top"><b style="font-size:22px">Chat</b></div>
+  <div class="pbox" id="chList"></div>
+</div>
+
+<!-- conversación -->
+<div class="screen" id="cc">
+  <div class="top">
+    <button class="btn r s" id="ccBack">←</button>
+    <div id="ccWho"></div>
+    <button class="btn p s" id="ccBasta">Basta</button>
+  </div>
+  <div class="pbox" id="ccMsgs"></div>
+  <div class="cbar">
+    <input type="text" id="ccIn" placeholder="Escribe un mensaje..." maxlength="500" autocomplete="off">
+    <button class="btn g s" id="ccSend">Enviar</button>
+  </div>
+</div>
+
+<!-- Basta -->
+<div class="screen" id="bs">
+  <div class="top">
+    <button class="btn r s" id="bsBack">←</button>
+    <b style="font-size:20px">Basta <small id="bsOpp" style="font-weight:normal"></small></b>
+    <button class="btn s" id="bsReset" title="Reiniciar marcador">↺</button>
+  </div>
+  <p class="sub" id="bsEst"></p>
+  <div id="bsCat">Nombre</div>
+  <div id="bsLet">A</div>
+  <button class="btn g" id="bsBtn">Comenzar</button>
+  <div class="bsScore">
+    <div class="pl"><b id="bsN1"></b><div class="pts" id="bsP1">0</div>
+      <div class="pm"><button class="btn r s" data-w="0" data-d="-1">-1</button><button class="btn g s" data-w="0" data-d="1">+1</button></div></div>
+    <div class="pl"><b id="bsN2"></b><div class="pts" id="bsP2">0</div>
+      <div class="pm"><button class="btn r s" data-w="1" data-d="-1">-1</button><button class="btn g s" data-w="1" data-d="1">+1</button></div></div>
+  </div>
+</div>
+
+<!-- pestañas -->
+<nav id="nav">
+  <button data-t="menu" class="on"><span>🎮</span>Juegos</button>
+  <button data-t="chl"><span>💬</span>Chat <i class="bdg" id="bdgC" style="display:none"></i></button>
+  <button data-t="pf"><span>👤</span>Perfil <i class="bdg" id="bdgN" style="display:none"></i></button>
+</nav>
 
 <div class="ov" id="inv"><div class="modal">
   <h2 id="invT">Invitar amigo</h2>
@@ -318,7 +399,11 @@ function revive(){
   render();[523,659,784].forEach((f,k)=>beep(f,.25,'triangle',.15,k*.1));vib([30,40,60]);
 }
 function hide(){$('end').classList.remove('on')}
-function go(id){document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id))}
+function go(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id));
+  document.body.classList.toggle('nav',['menu','chl','pf'].includes(id));
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===id));
+}
 function menu(){hide();go('menu')}
 $('play').onclick=()=>{go('gs');startGame();beep(600,.1)};
 $('back').onclick=menu;$('eh').onclick=menu;
@@ -374,7 +459,7 @@ window.mergeBest=r=>{
 };
 // por si Firebase tarda o no hay internet, igual aparece el boton
 setTimeout(()=>{if(!$('acct').firstChild)setAcct('out')},4000);
-document.addEventListener('touchmove',e=>{if(!e.target.closest('.pbox,#invList'))e.preventDefault()},{passive:false});
+document.addEventListener('touchmove',e=>{if(!e.target.closest('.pbox,#invList,#menu'))e.preventDefault()},{passive:false});
 </script>
 
 <script>
@@ -1014,6 +1099,8 @@ import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase
 import {getAuth,setPersistence,browserLocalPersistence,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteDoc,collection,query,where,onSnapshot,runTransaction,arrayUnion,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
+import {getDatabase,ref as rref,push as rpush,onChildAdded as rChild,onValue as rVal,query as rq,limitToLast,runTransaction as rtx,update as rupd,serverTimestamp as rts} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
+
 // config de Firebase del proyecto basta-para-mi-novia
 const firebaseConfig={
   apiKey:"AIzaSyDw0yFb2DjYiZ6luRx-naISz0WiEUKnjvc",
@@ -1029,6 +1116,7 @@ const firebaseConfig={
 const app=initializeApp(firebaseConfig);
 const auth=getAuth(app);
 const db=getFirestore(app);
+const rdb=getDatabase(app);   // Realtime Database: mensajes del chat y cuartos de Basta
 // la sesion se queda guardada en el navegador hasta que pulses "Salir"
 setPersistence(auth,browserLocalPersistence).catch(()=>{});
 
@@ -1067,7 +1155,7 @@ window.mkAv=(u,px)=>{
   paintAv(d,u);return d;
 };
 window.setBadge=n=>{
-  ['bdg','bdgM'].forEach(id=>{$(id).textContent=n;$(id).style.display=n?'':'none'});
+  ['bdg','bdgM','bdgN'].forEach(id=>{$(id).textContent=n;$(id).style.display=n?'':'none'});
 };
 const btn=(txt,cls,fn)=>{const b=document.createElement('button');b.className='btn s '+cls;b.textContent=txt;b.onclick=fn;return b};
 
@@ -1108,12 +1196,13 @@ function listen(uid){
 function changed(){
   window.setBadge(reqTo.filter(r=>r.status==='pending').length);
   renderFriends();
+  watchChats();
 }
 
 async function refresh(u,ask){
   if(!u){
-    stopListen();me=null;reqFrom=[];reqTo=[];incoming=[];window.setBadge(0);closeInv();$('got').classList.remove('on');
-    if($('pf').classList.contains('on'))window.go('menu');
+    stopListen();ccClose();bsClose();unwatchChats();me=null;reqFrom=[];reqTo=[];incoming=[];window.setBadge(0);closeInv();$('got').classList.remove('on');
+    if(['pf','chl','cc','bs'].some(id=>$(id).classList.contains('on')))window.go('menu');
     return window.setAcct('out');
   }
   let d=null;
@@ -1372,6 +1461,182 @@ $('gotN').onclick=()=>{
   const id=shownInv;doneInv.add(id);$('got').classList.remove('on');
   updateDoc(doc(db,'games',id),{status:'declined'}).catch(()=>{});
 };
+
+/* ---------- elegir un amigo / pedir login ---------- */
+function needLogin(txt){
+  if(auth.currentUser){window.openLogin('claim');msg('Elige tu usuario para usar el chat y jugar con amigos')}
+  else{window.openLogin('login');msg(txt)}
+}
+function pickFriend(title,cb){
+  if(!me)return needLogin('Inicia sesión para jugar con un amigo');
+  stopWait();waitId='';
+  $('invT').textContent=title;imsg('');$('invX').textContent='Cancelar';
+  const L=$('invList');L.innerHTML='<p class="msg">Cargando...</p>';
+  $('inv').classList.add('on');
+  myFriends().then(fr=>{
+    L.innerHTML='';
+    if(!fr.length){L.innerHTML='<p class="msg">Todavía no tienes amigos. Agrégalos en la pestaña Perfil.</p>';return}
+    fr.forEach(f=>L.appendChild(row({...f.user,name:f.name},f.name,f.user.status||('Récord: '+(f.user.best||0)),[
+      btn('Jugar','g',()=>{closeInv();cb(f)})
+    ])));
+  });
+}
+
+/* ---------- Chat: mensajes en tiempo real con tus amigos ---------- */
+const chatKey=(a,b)=>'chat_'+[a,b].sort().join('_');
+let cc=null,chWatch={},lastMsg={},ctok=0;
+const friendIds=()=>me?[...reqFrom,...reqTo].filter(r=>r.status==='accepted').map(r=>r.from===me.uid?r.to:r.from):[];
+const getSeen=id=>{try{return +localStorage.getItem('cs_'+me.uid+'_'+id)||0}catch(e){return 0}};
+const setSeen=(id,t)=>{try{localStorage.setItem('cs_'+me.uid+'_'+id,t)}catch(e){}};
+const isUnread=id=>{const m=lastMsg[id];return !!(me&&m&&m.u!==me.uid&&m.ts>getSeen(id)&&!(cc&&cc.opp.uid===id))};
+function unreadUpdate(){
+  if(!me)return;
+  const n=Object.keys(lastMsg).filter(isUnread).length;
+  $('bdgC').textContent=n;$('bdgC').style.display=n?'':'none';
+  if($('chl').classList.contains('on'))renderChats();
+}
+// escucha el último mensaje de cada amigo para avisar de los nuevos
+function watchChats(){
+  if(!me)return;
+  const ids=new Set(friendIds());
+  Object.keys(chWatch).forEach(id=>{if(!ids.has(id)){chWatch[id]();delete chWatch[id];delete lastMsg[id]}});
+  ids.forEach(id=>{
+    if(chWatch[id])return;
+    chWatch[id]=rChild(rq(rref(rdb,chatKey(me.uid,id)),limitToLast(1)),s=>{
+      const v=s.val();if(!v)return;
+      lastMsg[id]={ts:v.ts||0,u:v.u};unreadUpdate();
+    },()=>{});
+  });
+  unreadUpdate();
+}
+function unwatchChats(){Object.values(chWatch).forEach(f=>f());chWatch={};lastMsg={};$('bdgC').style.display='none'}
+
+async function renderChats(){
+  if(!me||!$('chl').classList.contains('on'))return;
+  const L=$('chList'),tok=++ctok,fr=await myFriends();
+  if(tok!==ctok||!me)return;
+  L.innerHTML='';
+  if(!fr.length){
+    const p=document.createElement('p');p.className='msg';p.textContent='Todavía no tienes amigos para chatear.';
+    L.append(p,btn('Agregar amigos','g',()=>{window.FB.openProfile();showTab('F');renderFriends()}));
+    return;
+  }
+  fr.sort((a,b)=>(isUnread(b.uid)-isUnread(a.uid))||a.name.localeCompare(b.name));
+  fr.forEach(f=>{
+    const un=isUnread(f.uid),parts=[];
+    if(un){const d=document.createElement('i');d.className='bdg';d.textContent='nuevo';parts.push(d)}
+    parts.push(btn('Basta','p',e=>{e.stopPropagation();bsOpen(f,'chl')}));
+    const r=row({...f.user,name:f.name},f.name,un?'💬 Mensaje nuevo':(f.user.status||'Toca para chatear'),parts);
+    r.style.cursor='pointer';r.onclick=()=>ccOpen(f);
+    L.appendChild(r);
+  });
+}
+function addBub(v){
+  const box=$('ccMsgs'),d=document.createElement('div');
+  d.className='bub'+(v.u===me.uid?' me':'');
+  d.textContent=v.t||'';
+  if(v.ts){const s=document.createElement('small');s.textContent=new Date(v.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});d.appendChild(s)}
+  box.appendChild(d);box.scrollTop=box.scrollHeight;
+}
+function ccOpen(f){
+  if(!me)return;
+  ccClose();
+  const key=chatKey(me.uid,f.uid);
+  cc={key:key,opp:f,max:0,off:null};
+  const who=$('ccWho');who.innerHTML='';
+  const nm=document.createElement('b');nm.textContent=f.name;
+  who.append(window.mkAv({...f.user,name:f.name},32),nm);
+  $('ccMsgs').innerHTML='';$('ccIn').value='';
+  window.go('cc');
+  cc.off=rChild(rq(rref(rdb,key),limitToLast(200)),s=>{
+    const v=s.val();if(!v||!cc||cc.key!==key)return;
+    addBub(v);
+    if((v.ts||0)>cc.max){cc.max=v.ts;setSeen(f.uid,cc.max)}
+  },e=>{
+    const p=document.createElement('p');p.className='msg';
+    p.textContent='No se pudo abrir el chat ('+(e.code||e.message)+'). Revisa las reglas de Realtime Database.';
+    $('ccMsgs').appendChild(p);
+  });
+}
+function ccClose(){if(cc){if(cc.off)cc.off();cc=null}}
+function ccSend(){
+  if(!cc||!me)return;
+  const i=$('ccIn'),t=i.value.trim();
+  if(!t)return;
+  rpush(rref(rdb,cc.key),{u:me.uid,n:me.name,t:t.slice(0,500),ts:rts()})
+    .catch(e=>alert('No se pudo enviar: '+(e.code||e.message)));
+  i.value='';i.focus();
+}
+$('ccSend').onclick=ccSend;
+$('ccIn').onkeydown=e=>{if(e.key==='Enter')ccSend()};
+$('ccBack').onclick=()=>{ccClose();window.go('chl');unreadUpdate()};
+$('ccBasta').onclick=()=>{if(cc)bsOpen(cc.opp,'cc')};
+
+/* ---------- Basta: letra y categoría compartidas con un amigo ---------- */
+const bsL="ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""),
+  bsC=["Nombre","Apellido","Estado","Color","Animal","Canción","Artista","Cosa"];
+const pick=a=>a[Math.random()*a.length|0];
+let bs=null;
+function bsOpen(f,from){
+  if(!me)return needLogin('Inicia sesión para jugar Basta');
+  bsClose();
+  const key='basta_'+[me.uid,f.uid].sort().join('_');
+  bs={key:key,opp:f,from:from||'menu',run:false,tick:0,off:null};
+  $('bsOpp').textContent='con '+f.name;
+  $('bsEst').textContent='Cargando...';
+  $('bsLet').textContent='A';$('bsCat').textContent='Nombre';
+  window.go('bs');
+  bs.off=rVal(rref(rdb,key),s=>bsRender(s.val()||{}),e=>{
+    $('bsEst').textContent='No se pudo abrir Basta ('+(e.code||e.message)+'). Revisa las reglas de Realtime Database.';
+  });
+}
+function bsClose(){if(bs){if(bs.off)bs.off();clearInterval(bs.tick);bs=null}}
+function bsRender(d){
+  if(!bs||!me)return;
+  const was=bs.run,p=d.p||{};
+  bs.run=!!d.running;
+  $('bsEst').textContent=d.estado||'Toca Comenzar para sacar letra y categoría';
+  $('bsBtn').textContent=bs.run?'BASTA':'Comenzar';
+  $('bsBtn').className='btn '+(bs.run?'r':'g');
+  $('bsN1').textContent=me.name;$('bsN2').textContent=bs.opp.name;
+  $('bsP1').textContent=p[me.uid]||0;$('bsP2').textContent=p[bs.opp.uid]||0;
+  clearInterval(bs.tick);
+  if(bs.run){
+    // la animación es local en los dos teléfonos; solo la letra final se guarda en línea
+    bs.tick=setInterval(()=>{$('bsLet').textContent=pick(bsL);$('bsCat').textContent=pick(bsC)},80);
+  }else{
+    $('bsLet').textContent=d.letra||'A';$('bsCat').textContent=d.categoria||'Nombre';
+    if(was)beep(700,.15,'triangle');
+  }
+}
+$('bsBtn').onclick=()=>{
+  if(!bs||!me)return;
+  const r=rref(rdb,bs.key);
+  if(!bs.run)rupd(r,{running:true,estado:me.name+' está sacando letra y categoría...'});
+  else rupd(r,{running:false,letra:pick(bsL),categoria:pick(bsC),estado:'Letra y categoría seleccionadas'});
+};
+document.querySelectorAll('.bsScore button').forEach(b=>b.onclick=()=>{
+  if(!bs||!me)return;
+  const uid=b.dataset.w==='1'?bs.opp.uid:me.uid,d=+b.dataset.d;
+  rtx(rref(rdb,bs.key+'/p/'+uid),v=>Math.max(0,(v||0)+d)).catch(()=>{});
+});
+$('bsReset').onclick=()=>{if(bs&&confirm('¿Reiniciar el marcador?'))rupd(rref(rdb,bs.key),{p:null})};
+$('bsBack').onclick=()=>{
+  const f=bs?bs.from:'menu';
+  bsClose();
+  window.go(f==='cc'&&!cc?'chl':f);
+  if(f==='chl')renderChats();
+};
+$('bsPlay').onclick=()=>pickFriend('Jugar Basta con...',f=>bsOpen(f,'menu'));
+
+/* ---------- pestañas de abajo ---------- */
+document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{
+  const t=b.dataset.t;
+  if(t==='menu')return window.go('menu');
+  if(!me)return needLogin(t==='chl'?'Inicia sesión para chatear con tus amigos':'Inicia sesión para ver tu perfil');
+  if(t==='chl'){window.go('chl');renderChats()}
+  else window.FB.openProfile();
+});
 
 /* ---------- funciones que usa el resto de la pagina ---------- */
 window.FB={
