@@ -11,14 +11,14 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:Arial,Helvetica,sans-
 body{background:radial-gradient(ellipse at center,var(--bg1) 55%,var(--bg2) 100%);touch-action:none}
 .screen{display:none;height:100%;flex-direction:column;align-items:center;justify-content:center;padding:12px;gap:14px}
 .screen.on{display:flex}
-h1{margin:0;font-size:42px}
+h1{margin:0;font-size:36px}
 .sub{opacity:.85;font-size:15px;margin:0}
 .btn{border:0;border-radius:12px;padding:13px 26px;font:bold 17px Arial,sans-serif;color:#fff;cursor:pointer;background:var(--purple)}
 .btn:active{transform:scale(.96)}
 .btn.g{background:var(--green)}.btn.r{background:var(--red)}.btn.p{background:var(--pink)}
 .btn.s{padding:9px 14px;font-size:15px;border-radius:10px}
-.game{background:var(--card);border-radius:20px;padding:20px 28px;text-align:center;width:min(300px,88vw)}
-.game b{display:block;font-size:24px;margin-bottom:12px}
+.game{background:var(--card);border-radius:20px;padding:14px 24px;text-align:center;width:min(300px,88vw)}
+.game b{display:block;font-size:24px;margin-bottom:8px}
 .top{width:min(440px,96vw);display:flex;justify-content:space-between;align-items:center}
 .stat{background:var(--card);border-radius:14px;padding:8px 18px;text-align:center}
 .stat small{display:block;font-size:12px;opacity:.85}.stat span{font-size:26px;font-weight:bold}
@@ -74,6 +74,15 @@ input{user-select:text;-webkit-user-select:text}
 .sw i.on{border-color:#fff}
 .bdg{background:#ef4444;color:#fff;border-radius:10px;padding:1px 7px;font-size:12px;font-style:normal;margin-left:4px}
 .msg{font-size:14px;min-height:18px;margin:0;text-align:center}
+#tw{gap:8px}
+.tray2{width:min(440px,96vw);height:110px;display:flex;justify-content:space-around;align-items:center;background:var(--card);border-radius:16px}
+#twC{display:block}
+#twG{position:relative;width:min(440px,96vw);height:10px;border-radius:6px;background:linear-gradient(90deg,#ef4444,#f59e0b 22%,#22c55e 42%,#22c55e 58%,#f59e0b 78%,#ef4444)}
+#twG i{position:absolute;top:-4px;left:50%;width:6px;height:18px;border-radius:3px;background:#fff;transform:translateX(-50%);box-shadow:0 0 3px rgba(0,0,0,.5)}
+#twG i#twP{background:transparent;border:2px solid #fff;display:none}
+#twDrag{position:fixed;z-index:50;opacity:.85;pointer-events:none;display:none;gap:2px}
+#twDrag div{border-radius:5px}
+#twDrag div.on{box-shadow:inset 0 -3px 0 rgba(0,0,0,.15)}
 </style></head><body>
 
 <div class="screen on" id="menu">
@@ -81,6 +90,13 @@ input{user-select:text;-webkit-user-select:text}
   <h1>Juegos</h1>
   <p class="sub">Elige un juego para empezar</p>
   <div class="game"><b>Block Blast</b><button class="btn" id="play">Jugar</button><p class="sub" id="best" style="margin-top:10px"></p></div>
+  <div class="game"><b>Torre Tetris</b>
+    <div style="display:flex;gap:8px;justify-content:center">
+      <button class="btn s" id="tw1">1 jugador</button>
+      <button class="btn s" id="tw2">2 jugadores</button>
+    </div>
+    <p class="sub" id="twBest" style="margin-top:8px"></p>
+  </div>
   <button class="btn p s" onclick="openSet()">Ajustes</button>
   <button class="btn p s" id="goPf" style="display:none">Perfil y amigos <i class="bdg" id="bdgM" style="display:none"></i></button>
 </div>
@@ -138,6 +154,19 @@ input{user-select:text;-webkit-user-select:text}
   </div>
 </div>
 <div id="drag"></div>
+
+<div class="screen" id="tw">
+  <div class="top">
+    <button class="btn r s" id="twBack">Menú</button>
+    <b id="twInfo" style="font-size:18px"></b>
+    <span style="width:70px"></span>
+  </div>
+  <div id="twG"><i id="twM"></i><i id="twP"></i></div>
+  <canvas id="twC"></canvas>
+  <div class="tray2" id="twT"></div>
+  <p class="sub" style="margin:0;font-size:13px">Toca una pieza para girarla · arrástrala a la torre</p>
+</div>
+<div id="twDrag"></div>
 
 <div class="ov" id="lg"><div class="login">
   <h1 id="lt">Login</h1>
@@ -306,7 +335,7 @@ $('bmain').onclick=()=>{
 };
 const mkBtn=(txt,cls,fn)=>{const b=document.createElement('button');b.className='btn s '+cls;b.textContent=txt;b.onclick=fn;return b};
 window.setAcct=function(st,name,user){
-  const a=$('acct');a.innerHTML='';
+  const a=$('acct');a.innerHTML='';window.myName=st==='in'?name:'';
   $('goPf').style.display=st==='in'?'':'none';
   if(st==='in'){
     const av=window.mkAv(user||{name:name},32);
@@ -331,6 +360,248 @@ setTimeout(()=>{if(!$('acct').firstChild)setAcct('out')},4000);
 document.addEventListener('touchmove',e=>{if(!e.target.closest('.pbox'))e.preventDefault()},{passive:false});
 </script>
 
+<script>
+/* ---------- Torre Tetris: equilibrar piezas en un balancín ---------- */
+(function(){
+const C=11,R=13,S=26;              // columnas, filas, tamaño de casilla
+const CW=520,CH=440,OX=260,OY=270;  // lienzo y centro del balancín
+const RR=130;                       // radio del arco del balancín
+const BL=2,BR=8;                    // columnas donde está la base
+const LIM=4.0,DEG=4.5;              // se cae si el centro de masa se corre más de 4 casillas; 4.5° por casilla
+const BH=(BR-BL+1)*S/2,YB=Math.round(Math.sqrt(RR*RR-BH*BH));
+const LIMA=LIM*DEG*Math.PI/180;
+
+const TETRO={I:[[1,1,1,1]],O:[[1,1],[1,1]],T:[[0,1,0],[1,1,1]],S:[[0,1,1],[1,1,0]],Z:[[1,1,0],[0,1,1]],J:[[1,0,0],[1,1,1]],L:[[0,0,1],[1,1,1]]};
+const TCOL={I:'#38bdf8',O:'#f5d90a',T:'#a855f7',S:'#22c55e',Z:'#ef4444',J:'#3b5bdb',L:'#f59e0b'};
+const KEYS=Object.keys(TETRO);
+const rotM=m=>{const h=m.length,w=m[0].length,o=[];for(let c=0;c<w;c++){o.push([]);for(let r=h-1;r>=0;r--)o[c].push(m[r][c])}return o};
+const cellsOf=m=>{const a=[];m.forEach((row,r)=>row.forEach((v,c)=>{if(v)a.push([r,c])}));return a};
+const newP=()=>{const k=KEYS[Math.random()*KEYS.length|0];return{m:TETRO[k].map(r=>r.slice()),c:TCOL[k]}};
+
+const cv=$('twC'),ctx=cv.getContext('2d');
+cv.width=CW;cv.height=CH;
+
+let mode=1,turn=0,names=['Jugador 1','Jugador 2'],G2=[],placed=0,tray=[];
+let ang=0,av=0,tgt=0,falling=0,over=false,drag=null,raf=0,trayTop=0;
+let tbest=0;try{tbest=+localStorage.getItem('bt_best')||0}catch(e){}
+const showBest=()=>{$('twBest').textContent='Récord (1 jugador): '+tbest};
+showBest();
+
+const cx=c=>(c-C/2)*S;
+const cy=r=>YB-(R-r)*S;
+
+/* fila donde cae la pieza en esa columna (-1 si no se puede) */
+function dropRow(p,col){
+  const cs=cellsOf(p.m),h=p.m.length,w=p.m[0].length;
+  if(col<0||col+w>C)return -1;
+  const blocked=r=>cs.some(([dr,dc])=>{const y=r+dr;return y>=R||(y>=0&&G2[y][col+dc])});
+  let r=-h;
+  if(blocked(r))return -1;
+  while(!blocked(r+1))r++;
+  if(!cs.some(([dr,dc])=>{const y=r+dr+1;return y<R&&G2[y][col+dc]}))return -1; // sin apoyo
+  if(cs.some(([dr])=>r+dr<0))return -1;                                          // se sale por arriba
+  return r;
+}
+/* cuánto se corre el centro de masa de la torre respecto al centro */
+function offset(extra){
+  let n=0,sx=0;
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){const v=G2[r][c];if(v&&v!=='B'){n++;sx+=c+.5}}
+  (extra||[]).forEach(x=>{n++;sx+=x});
+  return n?sx/n-C/2:0;
+}
+function anyMove(ps){
+  return ps.some(p=>{
+    let m=p.m;
+    for(let k=0;k<4;k++){
+      for(let c=0;c<=C-m[0].length;c++)if(dropRow({m:m},c)>=0)return true;
+      m=rotM(m);
+    }
+    return false;
+  });
+}
+
+/* ---------- partida ---------- */
+function start(m){
+  mode=m;turn=0;placed=0;over=false;falling=0;ang=0;av=0;tgt=0;drag=null;
+  names=[window.myName||'Jugador 1','Jugador 2'];
+  G2=[...Array(R)].map(()=>Array(C).fill(0));
+  for(let c=BL;c<=BR;c++)G2[R-1][c]='B';
+  go('tw');fit();newTray();
+  if(!raf)raf=requestAnimationFrame(loop);
+  beep(600,.1);
+}
+function updateInfo(){
+  $('twInfo').textContent=mode===2?'Turno: '+names[turn]:'Piezas: '+placed+' · Récord: '+tbest;
+}
+function newTray(){
+  tray=[newP(),newP(),newP()];
+  updateInfo();drawTray();
+  if(!anyMove(tray))end('Torre llena',mode===2?'Ya no caben más piezas: ¡empate!':'Pusiste '+placed+' piezas');
+}
+function nextTurn(){
+  if(mode===2)turn^=1;
+  newTray();
+}
+function place(i,col){
+  const p=tray[i],r=dropRow(p,col);
+  if(r<0){beep(180,.15,'triangle',.1);vib(25);return}
+  cellsOf(p.m).forEach(([dr,dc])=>{G2[r+dr][col+dc]=p.c});
+  placed++;
+  const off=offset();
+  tgt=off*DEG*Math.PI/180;
+  beep(420,.08,'sine',.15);beep(630,.08,'sine',.1,.04);vib(12);
+  if(Math.abs(off)>LIM)return fall(off>0?1:-1);
+  if(Math.abs(off)>LIM*.7)beep(140,.25,'sawtooth',.06,.1);
+  nextTurn();
+}
+function fall(dir){
+  falling=dir;av=0;over=true;
+  [300,240,180,120].forEach((f,k)=>beep(f,.25,'sawtooth',.1,k*.12));
+  vib([60,40,100]);
+  setTimeout(()=>{
+    if(!$('tw').classList.contains('on'))return;
+    if(mode===2)end('¡Se cayó la torre!',names[turn]+' la tiró. ¡Gana '+names[1-turn]+'!');
+    else end('¡Se cayó la torre!','Pusiste '+placed+' piezas');
+  },1100);
+}
+function end(t,m){
+  over=true;updateInfo();
+  if(mode===1&&placed>tbest){tbest=placed;try{localStorage.setItem('bt_best',tbest)}catch(e){};showBest();updateInfo()}
+  show(t,m,'Jugar de nuevo',()=>{hide();start(mode)},'Menú');
+}
+
+/* ---------- bandeja de piezas ---------- */
+function drawTray(){
+  const t=$('twT');t.innerHTML='';
+  tray.forEach((p,i)=>{
+    const s=document.createElement('div');s.className='slot';
+    const w=p.m[0].length,h=p.m.length,sz=Math.min(24,Math.floor(84/Math.max(w,h)));
+    const g=document.createElement('div');g.className='pc';
+    g.style.gridTemplateColumns='repeat('+w+','+sz+'px)';
+    p.m.forEach(row=>row.forEach(v=>{
+      const d=document.createElement('div');d.style.height=sz+'px';
+      if(v){d.style.background=p.c;d.style.boxShadow='inset 0 -3px 0 rgba(0,0,0,.15)'}
+      g.appendChild(d);
+    }));
+    s.appendChild(g);
+    s.addEventListener('pointerdown',e=>down(e,i));
+    t.appendChild(s);
+  });
+}
+
+/* ---------- arrastrar / girar ---------- */
+const scaleNow=()=>cv.getBoundingClientRect().width/CW;
+function colAt(x,p){
+  const rect=cv.getBoundingClientRect(),lx=(x-rect.left)/(rect.width/CW);
+  const c=Math.round((lx-(OX-C*S/2))/S-p.m[0].length/2);
+  return Math.max(0,Math.min(C-p.m[0].length,c));
+}
+function down(e,i){
+  if(over)return;
+  e.preventDefault();
+  drag={i:i,sx:e.clientX,sy:e.clientY,x:e.clientX,y:e.clientY,on:false,touch:e.pointerType!=='mouse'};
+  window.addEventListener('pointermove',move);
+  window.addEventListener('pointerup',up);
+  window.addEventListener('pointercancel',stopDrag);
+}
+function startFloat(){
+  const p=tray[drag.i],px=S*scaleNow()-2,el=$('twDrag');
+  trayTop=$('twT').getBoundingClientRect().top;
+  el.innerHTML='';el.style.display='grid';
+  el.style.gridTemplateColumns='repeat('+p.m[0].length+','+px+'px)';
+  p.m.forEach(row=>row.forEach(v=>{
+    const d=document.createElement('div');d.style.height=px+'px';
+    if(v){d.style.background=p.c;d.className='on'}
+    el.appendChild(d);
+  }));
+  beep(500,.05,'sine',.08);vib(8);
+}
+function moveFloat(){
+  const p=tray[drag.i],px=S*scaleNow(),el=$('twDrag');
+  const w=p.m[0].length*px,h=p.m.length*px,lift=drag.touch?px*1.6:0;
+  el.style.left=(drag.x-w/2)+'px';
+  el.style.top=(drag.y-h/2-lift)+'px';
+}
+function move(e){
+  if(!drag)return;
+  drag.x=e.clientX;drag.y=e.clientY;
+  if(!drag.on&&Math.hypot(e.clientX-drag.sx,e.clientY-drag.sy)>10){drag.on=true;startFloat()}
+  if(drag.on)moveFloat();
+}
+function stopDrag(){
+  window.removeEventListener('pointermove',move);
+  window.removeEventListener('pointerup',up);
+  window.removeEventListener('pointercancel',stopDrag);
+  $('twDrag').style.display='none';
+  drag=null;
+}
+function up(e){
+  const d=drag;stopDrag();
+  if(!d||over)return;
+  if(!d.on){                                   // un toque: gira la pieza
+    tray[d.i].m=rotM(tray[d.i].m);
+    beep(520,.05,'sine',.08);vib(6);drawTray();
+    return;
+  }
+  if(e.clientY<trayTop-6)place(d.i,colAt(e.clientX,tray[d.i]));   // soltó sobre la torre
+}
+
+/* ---------- dibujo ---------- */
+function cell(x,y,col,a){
+  ctx.globalAlpha=a;
+  ctx.fillStyle=col;ctx.fillRect(x+1,y+1,S-2,S-2);
+  ctx.fillStyle='rgba(0,0,0,.22)';ctx.fillRect(x+6,y+6,S-12,S-12);      // hueco como las fichas del juguete
+  ctx.fillStyle='rgba(255,255,255,.28)';ctx.fillRect(x+1,y+1,S-2,3);
+  ctx.globalAlpha=1;
+}
+function draw(){
+  ctx.clearRect(0,0,CW,CH);
+  ctx.fillStyle='rgba(0,0,0,.2)';ctx.fillRect(0,OY+RR,CW,4);            // mesa
+  ctx.save();
+  ctx.translate(OX+RR*ang,OY);ctx.rotate(ang);                         // el balancín rueda al inclinarse
+  const A=Math.atan2(YB,BH);
+  ctx.fillStyle='#1b1b1b';ctx.beginPath();ctx.arc(0,0,RR,A,Math.PI-A);ctx.closePath();ctx.fill();
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+    const v=G2[r][c];if(!v)continue;
+    if(v==='B'){ctx.fillStyle='#2b2b2b';ctx.fillRect(cx(c),cy(r),S,S);ctx.fillStyle='#444';ctx.fillRect(cx(c),cy(r),S,3)}
+    else cell(cx(c),cy(r),v,1);
+  }
+  let pred=null;
+  if(drag&&drag.on&&!over&&drag.y<trayTop-6){                          // sombra de dónde va a caer
+    const p=tray[drag.i],col=colAt(drag.x,p),r=dropRow(p,col);
+    if(r>=0){
+      cellsOf(p.m).forEach(([dr,dc])=>cell(cx(col+dc),cy(r+dr),p.c,.5));
+      pred=offset(cellsOf(p.m).map(([dr,dc])=>col+dc+.5));
+    }else{
+      cellsOf(p.m).forEach(([dr,dc])=>cell(cx(col+dc),cy(dr),'#c62828',.35));
+    }
+  }
+  ctx.restore();
+  const ratio=Math.max(-1,Math.min(1,ang/LIMA));
+  $('twM').style.left=(50+ratio*50)+'%';
+  const pe=$('twP');
+  if(pred===null)pe.style.display='none';
+  else{pe.style.display='block';pe.style.left=(50+Math.max(-1,Math.min(1,pred/LIM))*50)+'%'}
+}
+function loop(){
+  if(!$('tw').classList.contains('on')){raf=0;return}
+  if(falling){av+=.003;ang+=falling*av}
+  else{av+=(tgt-ang)*.09;av*=.8;ang+=av}
+  draw();
+  raf=requestAnimationFrame(loop);
+}
+function fit(){
+  const aw=Math.min(innerWidth*.96,440),ah=innerHeight-260;
+  const sc=Math.max(.3,Math.min(aw/CW,ah/CH));
+  cv.style.width=Math.round(CW*sc)+'px';cv.style.height=Math.round(CH*sc)+'px';
+}
+window.addEventListener('resize',fit);
+
+$('tw1').onclick=()=>start(1);
+$('tw2').onclick=()=>start(2);
+$('twBack').onclick=menu;
+})();
+</script>
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import {getAuth,setPersistence,browserLocalPersistence,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
