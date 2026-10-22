@@ -55,6 +55,25 @@ h1{margin:0;font-size:42px}
 #menu{position:relative}
 #acct{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);right:12px;display:flex;gap:8px;align-items:center}
 #acct span{font-weight:bold;font-size:15px}
+input{user-select:text;-webkit-user-select:text}
+#pf{justify-content:flex-start}
+.tabs{display:flex;gap:8px}
+.tabs .btn{background:var(--cell)}.tabs .btn.on{background:var(--pink)}
+.pbox{width:min(440px,96vw);flex:1;min-height:0;overflow-y:auto;touch-action:pan-y;background:var(--card);border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.pbox h3{margin:0;font-size:16px}
+.pbox input[type=text]{border:0;border-radius:12px;padding:12px;font-size:16px;background:#fff5fb;color:#333;outline:none;width:100%}
+.av{border-radius:50%;background:#8b5cf6;color:#fff;font-weight:bold;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none}
+.av img{width:100%;height:100%;object-fit:cover}
+.item{display:flex;align-items:center;gap:10px;background:var(--cell);border-radius:14px;padding:8px 10px}
+.item .inf{flex:1;min-width:0}
+.item .inf b{display:block}
+.item .inf small{opacity:.85;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .btn{padding:7px 10px;font-size:13px}
+.sw{display:flex;gap:10px;justify-content:center}
+.sw i{width:30px;height:30px;border-radius:50%;cursor:pointer;border:3px solid transparent}
+.sw i.on{border-color:#fff}
+.bdg{background:#ef4444;color:#fff;border-radius:10px;padding:1px 7px;font-size:12px;font-style:normal;margin-left:4px}
+.msg{font-size:14px;min-height:18px;margin:0;text-align:center}
 </style></head><body>
 
 <div class="screen on" id="menu">
@@ -63,6 +82,7 @@ h1{margin:0;font-size:42px}
   <p class="sub">Elige un juego para empezar</p>
   <div class="game"><b>Block Blast</b><button class="btn" id="play">Jugar</button><p class="sub" id="best" style="margin-top:10px"></p></div>
   <button class="btn p s" onclick="openSet()">Ajustes</button>
+  <button class="btn p s" id="goPf" style="display:none">Perfil y amigos <i class="bdg" id="bdgM" style="display:none"></i></button>
 </div>
 
 <div class="screen" id="gs">
@@ -74,6 +94,48 @@ h1{margin:0;font-size:42px}
   </div>
   <div id="board"></div>
   <div id="tray"></div>
+</div>
+<div class="screen" id="pf">
+  <div class="top">
+    <button class="btn r s" id="pfBack">Menú</button>
+    <b style="font-size:20px">Mi cuenta</b>
+    <span style="width:70px"></span>
+  </div>
+  <div class="tabs">
+    <button class="btn s on" id="tabP">Perfil</button>
+    <button class="btn s" id="tabF">Amigos <i class="bdg" id="bdg" style="display:none"></i></button>
+  </div>
+
+  <div class="pbox" id="pP">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+      <div class="av" id="pAv" style="width:96px;height:96px;font-size:40px"></div>
+      <b id="pName" style="font-size:22px"></b>
+      <small id="pBest"></small>
+      <div style="display:flex;gap:8px">
+        <button class="btn p s" id="pPhoto">Cambiar foto</button>
+        <button class="btn s" id="pNoPhoto">Quitar</button>
+      </div>
+      <input type="file" id="pFile" accept="image/*" hidden>
+    </div>
+    <h3>Estado</h3>
+    <input type="text" id="pStatus" maxlength="40" placeholder="Escribe algo sobre ti...">
+    <h3>Color del avatar</h3>
+    <div class="sw" id="pSw"></div>
+    <button class="btn g" id="pSave">Guardar</button>
+    <p class="msg" id="pMsg"></p>
+  </div>
+
+  <div class="pbox" id="pF" style="display:none">
+    <h3>Agregar amigo</h3>
+    <div style="display:flex;gap:8px">
+      <input type="text" id="fIn" placeholder="Nombre de usuario" maxlength="16">
+      <button class="btn g s" id="fAdd">Agregar</button>
+    </div>
+    <p class="msg" id="fMsg"></p>
+    <div id="fReq"></div>
+    <div id="fSent"></div>
+    <div id="fList"></div>
+  </div>
 </div>
 <div id="drag"></div>
 
@@ -134,7 +196,7 @@ function startLevel(l){
   newPieces();render();hud();
 }
 function startGame(){score=0;startLevel(1)}
-function hud(){if(score>best){best=score;try{localStorage.setItem('bb_best2',best)}catch(e){}}$('lv').textContent=best;$('pt').textContent=score;$('best').textContent='Récord: '+best}
+function hud(){if(score>best){best=score;try{localStorage.setItem('bb_best2',best)}catch(e){}if(window.FB)FB.saveBest(best)}$('lv').textContent=best;$('pt').textContent=score;$('best').textContent='Récord: '+best}
 function render(){cells.forEach((d,i)=>{d.className='c'+(G[i]?' f':'');d.style.background=G[i]||''})}
 function drawTray(){
   const t=$('tray');t.innerHTML='';
@@ -243,26 +305,36 @@ $('bmain').onclick=()=>{
   else FB.claim(u);
 };
 const mkBtn=(txt,cls,fn)=>{const b=document.createElement('button');b.className='btn s '+cls;b.textContent=txt;b.onclick=fn;return b};
-window.setAcct=function(st,name){
+window.setAcct=function(st,name,user){
   const a=$('acct');a.innerHTML='';
+  $('goPf').style.display=st==='in'?'':'none';
   if(st==='in'){
+    const av=window.mkAv(user||{name:name},32);
     const sp=document.createElement('span');sp.textContent='Hola, '+name;
-    a.append(sp,mkBtn('Salir','r',()=>FB.logout()));
+    av.style.cursor=sp.style.cursor='pointer';
+    av.onclick=sp.onclick=()=>FB.openProfile();
+    a.append(av,sp,mkBtn('Salir','r',()=>FB.logout()));
   }else if(st==='noname'){
     a.append(mkBtn('Elegir usuario','p',()=>openLogin('claim')),mkBtn('Salir','r',()=>FB.logout()));
   }else{
     a.append(mkBtn('Iniciar sesión','p',()=>openLogin('login')));
   }
 };
+// junta el récord de este dispositivo con el de la cuenta
+window.mergeBest=r=>{
+  r=+r||0;
+  if(r>best){best=r;try{localStorage.setItem('bb_best2',best)}catch(e){};$('lv').textContent=best;$('best').textContent='Récord: '+best}
+  else if(best>r&&window.FB)FB.saveBest(best);
+};
 // por si Firebase tarda o no hay internet, igual aparece el boton
 setTimeout(()=>{if(!$('acct').firstChild)setAcct('out')},4000);
-document.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
+document.addEventListener('touchmove',e=>{if(!e.target.closest('.pbox'))e.preventDefault()},{passive:false});
 </script>
 
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import {getAuth,setPersistence,browserLocalPersistence,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import {getFirestore,doc,getDoc,runTransaction,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteDoc,collection,query,where,onSnapshot,runTransaction,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 // config de Firebase del proyecto basta-para-mi-novia
 const firebaseConfig={
@@ -282,8 +354,15 @@ const db=getFirestore(app);
 // la sesion se queda guardada en el navegador hasta que pulses "Salir"
 setPersistence(auth,browserLocalPersistence).catch(()=>{});
 
+const $=id=>document.getElementById(id);
+const COLS=["#ff4fa3","#8b5cf6","#22c55e","#f59e0b","#38bdf8","#ef4444"];
 let registering=false;
-const msg=t=>{document.getElementById('lmsg').textContent=t};
+let me=null;              // mis datos: {uid,name,photo,status,color,best}
+let reqFrom=[],reqTo=[];  // solicitudes que mande / que me mandaron
+let unsubs=[],selColor=COLS[1],rtok=0,bt=null;
+const ucache={};
+
+const msg=t=>{$('lmsg').textContent=t};
 const errs={
   'auth/email-already-in-use':'Ese correo ya tiene cuenta',
   'auth/invalid-email':'Correo no válido',
@@ -296,6 +375,24 @@ const errs={
 };
 const fail=e=>msg(errs[e.code]||('Error: '+(e.code||e.message)));
 
+/* ---------- avatares ---------- */
+const okImg=s=>typeof s==='string'&&/^data:image\/(jpeg|png|webp);base64,/.test(s);
+function paintAv(el,u){
+  el.innerHTML='';el.style.background=u.color||'#8b5cf6';
+  if(okImg(u.photo)){const i=document.createElement('img');i.src=u.photo;el.appendChild(i)}
+  else el.textContent=(u.name||'?').charAt(0).toUpperCase();
+}
+window.mkAv=(u,px)=>{
+  const d=document.createElement('div');d.className='av';
+  d.style.width=px+'px';d.style.height=px+'px';d.style.fontSize=(px*.45)+'px';
+  paintAv(d,u);return d;
+};
+window.setBadge=n=>{
+  ['bdg','bdgM'].forEach(id=>{$(id).textContent=n;$(id).style.display=n?'':'none'});
+};
+const btn=(txt,cls,fn)=>{const b=document.createElement('button');b.className='btn s '+cls;b.textContent=txt;b.onclick=fn;return b};
+
+/* ---------- usuario ---------- */
 const nameProblem=n=>{
   if(!n)return 'Escribe un nombre de usuario';
   if(n.length<3||n.length>16)return 'El usuario debe tener de 3 a 16 caracteres';
@@ -310,14 +407,181 @@ const saveName=(u,name)=>runTransaction(db,async tx=>{
   tx.set(doc(db,'users',u.uid),{name:name,nameLower:key,createdAt:serverTimestamp()});
 });
 
-async function refresh(u,ask){
-  if(!u)return window.setAcct('out');
-  let name=null;
-  try{const d=await getDoc(doc(db,'users',u.uid));if(d.exists())name=d.data().name}catch(e){}
-  if(name){window.setAcct('in',name);window.closeLogin()}
-  else{window.setAcct('noname');if(ask)window.openLogin('claim')}
+async function getUser(uid){
+  const c=ucache[uid];
+  if(c&&Date.now()-c.t<30000)return c.d;
+  let d={};
+  try{const s=await getDoc(doc(db,'users',uid));if(s.exists())d=s.data()}catch(e){}
+  ucache[uid]={t:Date.now(),d:d};return d;
 }
 
+function stopListen(){unsubs.forEach(f=>f());unsubs=[]}
+function listen(uid){
+  stopListen();
+  const q1=query(collection(db,'requests'),where('from','==',uid));
+  const q2=query(collection(db,'requests'),where('to','==',uid));
+  unsubs=[
+    onSnapshot(q1,s=>{reqFrom=s.docs.map(d=>({id:d.id,...d.data()}));changed()},()=>{}),
+    onSnapshot(q2,s=>{reqTo=s.docs.map(d=>({id:d.id,...d.data()}));changed()},()=>{})
+  ];
+}
+function changed(){
+  window.setBadge(reqTo.filter(r=>r.status==='pending').length);
+  renderFriends();
+}
+
+async function refresh(u,ask){
+  if(!u){
+    stopListen();me=null;reqFrom=[];reqTo=[];window.setBadge(0);
+    if($('pf').classList.contains('on'))window.go('menu');
+    return window.setAcct('out');
+  }
+  let d=null;
+  try{const s=await getDoc(doc(db,'users',u.uid));if(s.exists())d=s.data()}catch(e){}
+  if(d){
+    me={uid:u.uid,...d};
+    window.setAcct('in',d.name,me);window.closeLogin();
+    window.mergeBest(d.best);listen(u.uid);
+  }else{
+    me=null;window.setAcct('noname');
+    if(ask)window.openLogin('claim');
+  }
+}
+
+/* ---------- perfil ---------- */
+const pmsg=t=>{$('pMsg').textContent=t};
+const fmsg=t=>{$('fMsg').textContent=t};
+function fillProfile(){
+  if(!me)return;
+  paintAv($('pAv'),me);
+  $('pName').textContent=me.name;
+  $('pBest').textContent='Récord: '+(me.best||0);
+  $('pStatus').value=me.status||'';
+  selColor=me.color||COLS[1];drawSw();pmsg('');
+}
+function drawSw(){
+  const sw=$('pSw');sw.innerHTML='';
+  COLS.forEach(c=>{
+    const i=document.createElement('i');i.style.background=c;
+    if(c===selColor)i.className='on';
+    i.onclick=()=>{selColor=c;drawSw();paintAv($('pAv'),{...me,color:c})};
+    sw.appendChild(i);
+  });
+}
+function showTab(t){
+  $('pP').style.display=t==='P'?'':'none';
+  $('pF').style.display=t==='F'?'':'none';
+  $('tabP').classList.toggle('on',t==='P');
+  $('tabF').classList.toggle('on',t==='F');
+}
+// recorta la foto a cuadrado de 128x128 para que pese muy poco
+function resizeImg(file,px){
+  return new Promise((res,rej)=>{
+    const img=new Image(),url=URL.createObjectURL(file);
+    img.onload=()=>{
+      const c=document.createElement('canvas');c.width=px;c.height=px;
+      const s=Math.min(img.width,img.height),sx=(img.width-s)/2,sy=(img.height-s)/2;
+      c.getContext('2d').drawImage(img,sx,sy,s,s,0,0,px,px);
+      URL.revokeObjectURL(url);res(c.toDataURL('image/jpeg',0.8));
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('img'))};
+    img.src=url;
+  });
+}
+async function saveProfile(data,okText){
+  if(!me)return;
+  try{
+    await updateDoc(doc(db,'users',me.uid),data);
+    Object.assign(me,data);delete ucache[me.uid];
+    window.setAcct('in',me.name,me);fillProfile();pmsg(okText);
+  }catch(e){pmsg(errs[e.code]||'No se pudo guardar')}
+}
+$('pPhoto').onclick=()=>$('pFile').click();
+$('pFile').onchange=async e=>{
+  const f=e.target.files[0];e.target.value='';
+  if(!f)return;
+  try{saveProfile({photo:await resizeImg(f,128)},'Foto actualizada ✔')}
+  catch(err){pmsg('No se pudo leer esa imagen')}
+};
+$('pNoPhoto').onclick=()=>saveProfile({photo:''},'Foto quitada');
+$('pSave').onclick=()=>saveProfile({status:$('pStatus').value.trim().slice(0,40),color:selColor},'Guardado ✔');
+$('tabP').onclick=()=>showTab('P');
+$('tabF').onclick=()=>{showTab('F');renderFriends()};
+$('pfBack').onclick=()=>window.go('menu');
+$('goPf').onclick=()=>FB.openProfile();
+
+/* ---------- amigos ---------- */
+function row(u,fallback,sub,btns){
+  const nm=u.name||fallback;
+  const d=document.createElement('div');d.className='item';
+  d.appendChild(window.mkAv({...u,name:nm},40));
+  const inf=document.createElement('div');inf.className='inf';
+  const b=document.createElement('b');b.textContent=nm;
+  const sm=document.createElement('small');sm.textContent=sub;
+  inf.append(b,sm);d.appendChild(inf);
+  btns.forEach(x=>d.appendChild(x));
+  return d;
+}
+function fill(el,title,items,empty){
+  el.innerHTML='';
+  if(!items.length&&!empty)return;
+  const h=document.createElement('h3');h.textContent=title;el.appendChild(h);
+  if(!items.length){const p=document.createElement('p');p.className='msg';p.textContent=empty;el.appendChild(p)}
+  items.forEach(i=>el.appendChild(i));
+}
+async function renderFriends(){
+  if(!me||!$('pf').classList.contains('on'))return;
+  const tok=++rtok,my=me.uid;
+  const rec=reqTo.filter(r=>r.status==='pending');
+  const sent=reqFrom.filter(r=>r.status==='pending');
+  const fr=[...reqFrom,...reqTo].filter(r=>r.status==='accepted');
+  const other=r=>r.from===my?r.to:r.from;
+  const nameOf=r=>r.from===my?r.toName:r.fromName;
+  const users={};
+  await Promise.all([...new Set([...rec,...sent,...fr].map(other))].map(async id=>{users[id]=await getUser(id)}));
+  if(tok!==rtok||!me)return;
+
+  fill($('fReq'),'Solicitudes recibidas',rec.map(r=>row(users[other(r)],nameOf(r),'Quiere ser tu amigo',[
+    btn('Aceptar','g',()=>updateDoc(doc(db,'requests',r.id),{status:'accepted'}).catch(e=>fmsg('Error: '+e.code))),
+    btn('X','r',()=>deleteDoc(doc(db,'requests',r.id)).catch(e=>fmsg('Error: '+e.code)))
+  ])));
+  fill($('fSent'),'Solicitudes enviadas',sent.map(r=>row(users[other(r)],nameOf(r),'Pendiente...',[
+    btn('Cancelar','r',()=>deleteDoc(doc(db,'requests',r.id)).catch(e=>fmsg('Error: '+e.code)))
+  ])));
+  fill($('fList'),'Mis amigos',fr.map(r=>{
+    const u=users[other(r)];
+    const sub=(u.status?u.status+' · ':'')+'Récord: '+(u.best||0);
+    return row(u,nameOf(r),sub,[
+      btn('Quitar','r',()=>{if(confirm('¿Quitar a '+(u.name||nameOf(r))+' de tus amigos?'))deleteDoc(doc(db,'requests',r.id)).catch(e=>fmsg('Error: '+e.code))})
+    ]);
+  }),'Todavía no tienes amigos');
+}
+async function addFriend(){
+  if(!me)return;
+  const name=$('fIn').value.trim();
+  if(!name)return;
+  if(name.toLowerCase()===me.name.toLowerCase())return fmsg('Ese eres tú 😅');
+  try{
+    const d=await getDoc(doc(db,'usernames',name.toLowerCase()));
+    if(!d.exists())return fmsg('Ese usuario no existe');
+    const uid=d.data().uid;
+    const ex=[...reqFrom,...reqTo].find(r=>r.from===uid||r.to===uid);
+    if(ex){
+      if(ex.status==='accepted')return fmsg('Ya son amigos');
+      if(ex.from===uid){await updateDoc(doc(db,'requests',ex.id),{status:'accepted'});$('fIn').value='';return fmsg('¡Ya son amigos!')}
+      return fmsg('Ya le mandaste una solicitud');
+    }
+    const ud=await getUser(uid);
+    await setDoc(doc(db,'requests',me.uid+'_'+uid),{
+      from:me.uid,to:uid,fromName:me.name,toName:ud.name||name,status:'pending',createdAt:serverTimestamp()
+    });
+    $('fIn').value='';fmsg('Solicitud enviada ✔');
+  }catch(e){fmsg(errs[e.code]||('Error: '+(e.code||e.message)))}
+}
+$('fAdd').onclick=addFriend;
+$('fIn').onkeydown=e=>{if(e.key==='Enter')addFriend()};
+
+/* ---------- funciones que usa el resto de la pagina ---------- */
 window.FB={
   async login(id,pass){
     if(!id||!pass)return msg('Escribe tu usuario o correo y la contraseña');
@@ -354,6 +618,18 @@ window.FB={
     if(bad)return msg(bad);
     try{await saveName(u,name);await refresh(u,false)}
     catch(e){e.message==='taken'?msg('Ese usuario ya existe'):fail(e)}
+  },
+  openProfile(){
+    if(!me)return;
+    window.go('pf');showTab('P');fillProfile();fmsg('');renderFriends();
+  },
+  // guarda el récord en la cuenta (espera 3 segundos para no escribir en cada jugada)
+  saveBest(n){
+    if(!me||!(n>(me.best||0)))return;
+    const uid=me.uid;clearTimeout(bt);
+    bt=setTimeout(async()=>{
+      try{await updateDoc(doc(db,'users',uid),{best:n});if(me&&me.uid===uid)me.best=n}catch(e){}
+    },3000);
   },
   logout(){signOut(auth)}
 };
