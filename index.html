@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- esta pagina debe de ser simple pero bonita, como si la hubiera hecho el usuario aprendiendo lo basico -->
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Juegos</title>
@@ -45,9 +46,19 @@ h1{margin:0;font-size:42px}
 .tg{width:56px;height:30px;border-radius:15px;border:0;background:#ccc;position:relative;cursor:pointer}
 .tg::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.2s}
 .tg.on{background:var(--green)}.tg.on::after{left:29px}
+.login{background:#fff;color:#000;border-radius:28px;padding:34px 38px;width:min(400px,90vw);display:flex;flex-direction:column;gap:14px}
+.login h1{color:#000;font-size:34px;text-align:center}
+.login input{border:0;background:#fff5fb;border-radius:16px;padding:15px 16px;font-size:17px;outline:none;color:#333;width:100%;user-select:text;-webkit-user-select:text}
+.login .btn{background:var(--pink);border-radius:16px;font-size:15px;padding:14px;width:100%}
+#lmsg{color:var(--red);font-size:14px;text-align:center;min-height:18px;margin:0}
+.login .skip{background:none;color:#999;font-size:14px;padding:4px;text-decoration:underline}
+#menu{position:relative}
+#acct{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);right:12px;display:flex;gap:8px;align-items:center}
+#acct span{font-weight:bold;font-size:15px}
 </style></head><body>
 
 <div class="screen on" id="menu">
+  <div id="acct"></div>
   <h1>Juegos</h1>
   <p class="sub">Elige un juego para empezar</p>
   <div class="game"><b>Block Blast</b><button class="btn" id="play">Jugar</button><p class="sub" id="best" style="margin-top:10px"></p></div>
@@ -65,6 +76,17 @@ h1{margin:0;font-size:42px}
   <div id="tray"></div>
 </div>
 <div id="drag"></div>
+
+<div class="ov" id="lg"><div class="login">
+  <h1 id="lt">Login</h1>
+  <input id="lu" placeholder="Usuario o correo" autocomplete="username">
+  <input id="lm" type="email" placeholder="Correo" autocomplete="email" style="display:none">
+  <input id="lp" type="password" placeholder="Contraseña" autocomplete="current-password">
+  <p id="lmsg"></p>
+  <button class="btn" id="bmain">Iniciar Sesión</button>
+  <button class="btn" id="bsec">Registrarse</button>
+  <button class="btn skip" id="bskip">Seguir sin cuenta</button>
+</div></div>
 
 <div class="ov" id="set"><div class="modal"><h2>Ajustes</h2>
   <div class="row">Sonido <button class="tg" id="tS"></button></div>
@@ -192,5 +214,155 @@ function go(id){document.querySelectorAll('.screen').forEach(s=>s.classList.togg
 function menu(){hide();go('menu')}
 $('play').onclick=()=>{go('gs');startGame();beep(600,.1)};
 $('back').onclick=menu;$('eh').onclick=menu;
+
+/* ---------- cuenta (el codigo de Firebase esta en el script de abajo) ---------- */
+const lmsg=t=>{$('lmsg').textContent=t};
+let lmode='login';
+function setMode(m){
+  lmode=m;lmsg('');
+  const t={
+    login:['Login','Usuario o correo','Iniciar Sesión','Registrarse','Seguir sin cuenta'],
+    reg:['Crear cuenta','Nombre de usuario','Crear cuenta','Ya tengo cuenta','Cancelar'],
+    claim:['Tu usuario','Elige tu nombre de usuario','Guardar','','Más tarde']
+  }[m];
+  $('lt').textContent=t[0];$('lu').placeholder=t[1];$('bmain').textContent=t[2];
+  $('bsec').textContent=t[3];$('bsec').style.display=t[3]?'':'none';$('bskip').textContent=t[4];
+  $('lm').style.display=m==='reg'?'':'none';
+  $('lp').style.display=m==='claim'?'none':'';
+  $('lp').autocomplete=m==='reg'?'new-password':'current-password';
+}
+window.openLogin=m=>{setMode(m||'login');$('lg').classList.add('on')};
+window.closeLogin=()=>{$('lg').classList.remove('on');$('lp').value='';lmsg('')};
+$('bskip').onclick=()=>window.closeLogin();
+$('bsec').onclick=()=>setMode(lmode==='login'?'reg':'login');
+$('bmain').onclick=()=>{
+  if(!window.FB)return lmsg('Firebase no cargó, revisa tu internet');
+  const u=$('lu').value.trim(),m=$('lm').value.trim(),p=$('lp').value;
+  if(lmode==='login')FB.login(u,p);
+  else if(lmode==='reg')FB.register(u,m,p);
+  else FB.claim(u);
+};
+const mkBtn=(txt,cls,fn)=>{const b=document.createElement('button');b.className='btn s '+cls;b.textContent=txt;b.onclick=fn;return b};
+window.setAcct=function(st,name){
+  const a=$('acct');a.innerHTML='';
+  if(st==='in'){
+    const sp=document.createElement('span');sp.textContent='Hola, '+name;
+    a.append(sp,mkBtn('Salir','r',()=>FB.logout()));
+  }else if(st==='noname'){
+    a.append(mkBtn('Elegir usuario','p',()=>openLogin('claim')),mkBtn('Salir','r',()=>FB.logout()));
+  }else{
+    a.append(mkBtn('Iniciar sesión','p',()=>openLogin('login')));
+  }
+};
+// por si Firebase tarda o no hay internet, igual aparece el boton
+setTimeout(()=>{if(!$('acct').firstChild)setAcct('out')},4000);
 document.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
-</script></body></html>
+</script>
+
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import {getAuth,setPersistence,browserLocalPersistence,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import {getFirestore,doc,getDoc,runTransaction,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+// config de Firebase del proyecto basta-para-mi-novia
+const firebaseConfig={
+  apiKey:"AIzaSyDw0yFb2DjYiZ6luRx-naISz0WiEUKnjvc",
+  authDomain:"basta-para-mi-novia.firebaseapp.com",
+  databaseURL:"https://basta-para-mi-novia-default-rtdb.firebaseio.com",
+  projectId:"basta-para-mi-novia",
+  storageBucket:"basta-para-mi-novia.firebasestorage.app",
+  messagingSenderId:"503191389501",
+  appId:"1:503191389501:web:255fc7d5b8f19df5ea7154",
+  measurementId:"G-LL22R535KP"
+};
+
+const app=initializeApp(firebaseConfig);
+const auth=getAuth(app);
+const db=getFirestore(app);
+// la sesion se queda guardada en el navegador hasta que pulses "Salir"
+setPersistence(auth,browserLocalPersistence).catch(()=>{});
+
+let registering=false;
+const msg=t=>{document.getElementById('lmsg').textContent=t};
+const errs={
+  'auth/email-already-in-use':'Ese correo ya tiene cuenta',
+  'auth/invalid-email':'Correo no válido',
+  'auth/weak-password':'La contraseña debe tener mínimo 6 caracteres',
+  'auth/invalid-credential':'Usuario/correo o contraseña incorrectos',
+  'auth/network-request-failed':'No hay internet',
+  'auth/too-many-requests':'Demasiados intentos, espera un rato',
+  'auth/operation-not-allowed':'Falta activar Correo/Contraseña en Firebase',
+  'permission-denied':'Las reglas de Firestore no te dejan, revísalas'
+};
+const fail=e=>msg(errs[e.code]||('Error: '+(e.code||e.message)));
+
+const nameProblem=n=>{
+  if(!n)return 'Escribe un nombre de usuario';
+  if(n.length<3||n.length>16)return 'El usuario debe tener de 3 a 16 caracteres';
+  if(!/^[a-zA-Z0-9_]+$/.test(n))return 'Usuario: solo letras, números y _';
+  return '';
+};
+// guarda el usuario (y su correo, para poder entrar con el usuario)
+const saveName=(u,name)=>runTransaction(db,async tx=>{
+  const key=name.toLowerCase(),ref=doc(db,'usernames',key);
+  if((await tx.get(ref)).exists())throw new Error('taken');
+  tx.set(ref,{uid:u.uid,mail:u.email});
+  tx.set(doc(db,'users',u.uid),{name:name,nameLower:key,createdAt:serverTimestamp()});
+});
+
+async function refresh(u,ask){
+  if(!u)return window.setAcct('out');
+  let name=null;
+  try{const d=await getDoc(doc(db,'users',u.uid));if(d.exists())name=d.data().name}catch(e){}
+  if(name){window.setAcct('in',name);window.closeLogin()}
+  else{window.setAcct('noname');if(ask)window.openLogin('claim')}
+}
+
+window.FB={
+  async login(id,pass){
+    if(!id||!pass)return msg('Escribe tu usuario o correo y la contraseña');
+    try{
+      let mail=id;
+      if(!id.includes('@')){
+        const d=await getDoc(doc(db,'usernames',id.toLowerCase()));
+        if(!d.exists())return msg('Ese usuario no existe (si es una cuenta vieja, entra con tu correo)');
+        mail=d.data().mail;
+      }
+      await signInWithEmailAndPassword(auth,mail,pass);
+    }catch(e){fail(e)}
+  },
+  async register(name,mail,pass){
+    const bad=nameProblem(name);
+    if(bad)return msg(bad);
+    if(!mail||!pass)return msg('Llena todos los campos');
+    registering=true;
+    try{
+      const cred=await createUserWithEmailAndPassword(auth,mail,pass);
+      try{await saveName(cred.user,name)}
+      catch(e){
+        await cred.user.delete();
+        return e.message==='taken'?msg('Ese usuario ya existe'):fail(e);
+      }
+      await refresh(cred.user,false);
+    }catch(e){fail(e)}
+    finally{registering=false}
+  },
+  async claim(name){
+    const u=auth.currentUser;
+    if(!u)return msg('Primero inicia sesión');
+    const bad=nameProblem(name);
+    if(bad)return msg(bad);
+    try{await saveName(u,name);await refresh(u,false)}
+    catch(e){e.message==='taken'?msg('Ese usuario ya existe'):fail(e)}
+  },
+  logout(){signOut(auth)}
+};
+
+let first=true;
+onAuthStateChanged(auth,u=>{
+  const ask=!first;first=false;
+  if(registering)return;
+  refresh(u,ask);
+});
+</script>
+</body></html>
