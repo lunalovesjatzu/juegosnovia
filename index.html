@@ -168,7 +168,7 @@ input{user-select:text;-webkit-user-select:text}
   <div id="twG"><i id="twM"></i><i id="twP"></i></div>
   <canvas id="twC"></canvas>
   <div class="tray2" id="twT"></div>
-  <p class="sub" style="margin:0;font-size:13px">Toca una pieza para girarla · arrástrala a la torre</p>
+  <p class="sub" style="margin:0;font-size:13px">Arrástrala a la torre (se gira sola para encajar) · debe apoyarse en la base u otra pieza</p>
 </div>
 <div id="twDrag"></div>
 
@@ -380,10 +380,10 @@ document.addEventListener('touchmove',e=>{if(!e.target.closest('.pbox,#invList')
 <script>
 /* ---------- Torre Tetris: equilibrar piezas en un balancín ---------- */
 (function(){
-const C=11,R=13,S=26;              // columnas, filas, tamaño de casilla
+const C=19,R=13,S=26;              // columnas, filas, tamaño de casilla
 const CW=520,CH=440,OX=260,OY=270;  // lienzo y centro del balancín
 const RR=130;                       // radio del arco del balancín
-const BL=2,BR=8;                    // columnas donde está la base
+const BL=6,BR=12;                    // columnas donde está la base
 const LIM=4.0,DEG=4.5;              // se cae si el centro de masa se corre más de 4 casillas; 4.5° por casilla
 const BH=(BR-BL+1)*S/2,YB=Math.round(Math.sqrt(RR*RR-BH*BH));
 const LIMA=LIM*DEG*Math.PI/180;
@@ -393,7 +393,9 @@ const TCOL={I:'#38bdf8',O:'#f5d90a',T:'#a855f7',S:'#22c55e',Z:'#ef4444',J:'#3b5b
 const KEYS=Object.keys(TETRO);
 const rotM=m=>{const h=m.length,w=m[0].length,o=[];for(let c=0;c<w;c++){o.push([]);for(let r=h-1;r>=0;r--)o[c].push(m[r][c])}return o};
 const cellsOf=m=>{const a=[];m.forEach((row,r)=>row.forEach((v,c)=>{if(v)a.push([r,c])}));return a};
-const newP=rnd=>{const k=KEYS[(rnd||Math.random)()*KEYS.length|0];return{m:TETRO[k].map(r=>r.slice()),c:TCOL[k],rot:0}};
+const newP=rnd=>{const k=KEYS[(rnd||Math.random)()*KEYS.length|0];const b=TETRO[k].map(r=>r.slice());return{m:b.map(r=>r.slice()),b:b,c:TCOL[k],rot:0}};
+const rotN=(m,n)=>{for(let i=0;i<(n&3);i++)m=rotM(m);return m};
+const D4=[[1,0],[-1,0],[0,1],[0,-1]];
 
 const cv=$('twC'),ctx=cv.getContext('2d');
 cv.width=CW;cv.height=CH;
@@ -401,7 +403,8 @@ cv.width=CW;cv.height=CH;
 let mode=1,turn=0,names=['Tú','IA 🤖'],G2=[],placed=0,tray=[];          // mode 1 = contra la IA, 2 = con un amigo (en línea)
 let seed=1,meIdx=0,online=null,mv=0,seen=0,queue=[],ghost=null,thinking=false,unwatch=null;
 let ang=0,av=0,tgt=0,falling=0,over=false,drag=null,raf=0,trayTop=0;
-let rv=0,thud=false,gid=0,sndCool=0;   // velocidad del balancín, golpe, id de partida, pausa de sonido
+let rv=0,thud=false,gid=0,sndCool=0;
+let rm=null,oppGone=false;            // cuadro final en línea: {opp,base,offer,gone,wait,note}   // velocidad del balancín, golpe, id de partida, pausa de sonido
 let pieces=[],bodies=[];            // piezas puestas y piezas cayendo (gravedad)
 let wins=0;try{wins=+localStorage.getItem('bt_wins')||0}catch(e){}
 const showBest=()=>{$('twBest').textContent='Victorias contra la IA: '+wins};
@@ -410,17 +413,89 @@ showBest();
 const cx=c=>(c-C/2)*S;
 const cy=r=>YB-(R-r)*S;
 
-/* fila donde cae la pieza en esa columna (-1 si no se puede) */
-function dropRow(p,col){
-  const cs=cellsOf(p.m),h=p.m.length,w=p.m[0].length;
-  if(col<0||col+w>C)return -1;
-  const blocked=r=>cs.some(([dr,dc])=>{const y=r+dr;return y>=R||(y>=0&&G2[y][col+dc])});
-  let r=-h;
-  if(blocked(r))return -1;
-  while(!blocked(r+1))r++;
-  if(cs.some(([dr])=>r+dr<0))return -1;                                          // se sale por arriba (torre llena)
-  if(!cs.some(([dr,dc])=>{const y=r+dr+1;return y<R&&G2[y][col+dc]}))return -1; // sin apoyo
-  return r;
+/* ¿cabe la pieza m con su esquina de arriba a la izquierda en (row,col)?
+   Las casillas tienen que estar libres y la pieza debe estar APOYADA: alguna de sus casillas tiene justo debajo
+   otra pieza o la base. Se puede meter en cualquier hueco (incluso debajo de otra pieza) mientras se apoye.
+   La última fila es solo la base. */
+function canPut(m,row,col){
+  const h=m.length,w=m[0].length;
+  if(col<0||col+w>C||row<0||row+h>R-1)return false;
+  let sup=false;
+  for(let r=0;r<h;r++)for(let c=0;c<w;c++){
+    if(!m[r][c])continue;
+    const y=row+r,x=col+c;
+    if(G2[y][x])return false;
+    if(G2[y+1][x])sup=true;
+  }
+  return sup;
+}
+const cellsAt=(m,row,col)=>cellsOf(m).map(([dr,dc])=>[row+dr,col+dc]);
+/* comprobación rápida: ¿el centro de la pieza sola queda sobre sus apoyos? */
+function localOk(m,row,col){
+  let lo=1e9,hi=-1e9,sx=0,n=0;
+  cellsOf(m).forEach(([dr,dc])=>{
+    const y=row+dr,x=col+dc;sx+=x+.5;n++;
+    if(G2[y+1][x]){if(x<lo)lo=x;if(x+1>hi)hi=x+1}
+  });
+  const com=sx/n;
+  return com>=lo-1e-9&&com<=hi+1e-9;
+}
+/* gravedad: para cada pieza se toma ella y todo lo que descansa sobre ella (directa o indirectamente).
+   Ese bloque se sostiene si su centro de masa queda entre el apoyo más a la izquierda y el más a la derecha
+   (apoyos = casillas del bloque con algo debajo que no sea del bloque). Devuelve null si todo aguanta,
+   o {dir:-1|1} hacia donde se cae. */
+function unstable(ps){
+  const n=ps.length,id=[...Array(R)].map(()=>Array(C).fill(-1));
+  ps.forEach((p,k)=>p.cells.forEach(([r,c])=>{id[r][c]=k}));
+  const up=ps.map(()=>[]);
+  ps.forEach((p,k)=>{
+    const seen={};
+    p.cells.forEach(([r,c])=>{
+      const j=r+1<R?id[r+1][c]:-1;
+      if(j>=0&&j!==k&&!seen[j]){seen[j]=1;up[j].push(k)}
+    });
+  });
+  for(let k=0;k<n;k++){
+    const inU=new Uint8Array(n),st=[k],U=[];inU[k]=1;
+    while(st.length){const a=st.pop();U.push(a);up[a].forEach(b=>{if(!inU[b]){inU[b]=1;st.push(b)}})}
+    let lo=1e9,hi=-1e9,sx=0,cnt=0;
+    U.forEach(a=>ps[a].cells.forEach(([r,c])=>{
+      sx+=c+.5;cnt++;
+      const j=r+1<R?id[r+1][c]:-1;
+      const onBase=r+1===R-1&&c>=BL&&c<=BR;
+      if(onBase||(j>=0&&!inU[j])){if(c<lo)lo=c;if(c+1>hi)hi=c+1}
+    }));
+    if(lo>hi)return{dir:0};
+    const com=sx/cnt;
+    if(com<lo-1e-9)return{dir:-1};
+    if(com>hi+1e-9)return{dir:1};
+  }
+  return null;
+}
+/* cuántos lados de la pieza quedan pegados a la torre (más lados = encaja mejor) */
+function contacts(m,row,col){
+  const h=m.length,w=m[0].length;let n=0;
+  for(let r=0;r<h;r++)for(let c=0;c<w;c++){
+    if(!m[r][c])continue;
+    for(const [dy,dx] of D4){
+      const rr=r+dy,cc=c+dx;
+      if(rr>=0&&rr<h&&cc>=0&&cc<w&&m[rr][cc])continue;     // es otra casilla de la misma pieza
+      const y=row+rr,x=col+cc;
+      if(x>=0&&x<C&&y>=0&&y<R&&G2[y][x])n++;
+    }
+  }
+  return n;
+}
+/* las rotaciones distintas de una pieza (sin repetir las que se ven igual) */
+function rots(p){
+  const o=[],seen={};let m=p.b;
+  for(let k=0;k<4;k++){const key=JSON.stringify(m);if(!seen[key]){seen[key]=1;o.push({rot:k,m:m})}m=rotM(m)}
+  return o;
+}
+function spots(m){
+  const h=m.length,w=m[0].length,out=[];
+  for(let row=0;row+h<=R-1;row++)for(let col=0;col+w<=C;col++)if(canPut(m,row,col))out.push([row,col]);
+  return out;
 }
 /* cuánto se corre el centro de masa de la torre respecto al centro */
 function offset(extra){
@@ -430,14 +505,22 @@ function offset(extra){
   return n?sx/n-C/2:0;
 }
 function anyMove(ps){
-  return ps.some(p=>{
-    let m=p.m;
-    for(let k=0;k<4;k++){
-      for(let c=0;c<=C-m[0].length;c++)if(dropRow({m:m},c)>=0)return true;
-      m=rotM(m);
-    }
+  return ps.some(p=>rots(p).some(o=>{
+    const h=o.m.length,w=o.m[0].length;
+    for(let row=0;row+h<=R-1;row++)for(let col=0;col+w<=C;col++)if(canPut(o.m,row,col))return true;
     return false;
-  });
+  }));
+}
+/* centro de masa si se agrega la pieza m en la columna col (n y sx son los totales actuales de la torre) */
+function sums(){
+  let n=0,sx=0;
+  for(let r=0;r<R;r++)for(let c=0;c<C;c++){const v=G2[r][c];if(v&&v!=='B'){n++;sx+=c+.5}}
+  return[n,sx];
+}
+function offWith(m,col,n,sx){
+  let k=0,s=0;
+  m.forEach(row=>row.forEach((v,c)=>{if(v){k++;s+=col+c+.5}}));
+  return (sx+s)/(n+k)-C/2;
 }
 
 /* ---------- partida ---------- */
@@ -452,7 +535,7 @@ function leave(){                                   // salir de la partida (avis
   online=null;ghost=null;thinking=false;gid++;
 }
 function start(m,g){
-  leave();
+  closeEnd();leave();oppGone=false;
   mode=m;turn=0;placed=0;mv=0;over=false;falling=0;ang=0;av=0;tgt=0;drag=null;pieces=[];bodies=[];gid++;thud=false;rv=0;
   ghost=null;thinking=false;queue=[];seen=0;
   if(m===2){online=g;seed=g.seed;meIdx=g.me;names=g.names.slice()}
@@ -470,28 +553,30 @@ function updateInfo(){
 function newTray(){
   tray=genTray(mv);
   updateInfo();drawTray();
-  if(!anyMove(tray)){                         // ya no cabe nada: la torre también se desploma
-    const o=offset();
-    fall(o>=0?1:-1,'Torre llena','Ya no caben más piezas: ¡empate!',-1);
+  if(!anyMove(tray)){                         // ya no cabe nada y la torre sigue en pie: empate (no se cae)
+    end('¡Empate!','Ya no caben más piezas y la torre sigue en pie.',-1);
     return;
   }
   if(mode===1&&turn===1)aiPlay();
 }
 function nextTurn(){turn^=1;mv++;newTray()}
-function place(i,col,remote){
-  const p=tray[i],r=dropRow(p,col);
-  if(r<0){if(!remote){beep(180,.15,'triangle',.1);vib(25)}return}
-  if(mode===2&&!remote){FB.sendMove(online.id,{k:mv,u:online.myUid,i:i,r:(p.rot||0)%4,c:col});seen=mv+1}
-  cellsOf(p.m).forEach(([dr,dc])=>{G2[r+dr][col+dc]=p.c});
-  pieces.push({c:p.c,cells:cellsOf(p.m).map(([dr,dc])=>[r+dr,col+dc])});
+function place(i,rot,col,row,remote){
+  const p=tray[i],m=rotN(p.b,rot);
+  if(!canPut(m,row,col)){if(!remote){beep(180,.15,'triangle',.1);vib(25)}return}
+  p.m=m;p.rot=rot&3;
+  if(mode===2&&!remote){FB.sendMove(online.id,{k:mv,u:online.myUid,i:i,r:p.rot,c:col,y:row});seen=mv+1}
+  cellsOf(p.m).forEach(([dr,dc])=>{G2[row+dr][col+dc]=p.c});
+  pieces.push({c:p.c,cells:cellsOf(p.m).map(([dr,dc])=>[row+dr,col+dc])});
   placed++;
   const off=offset();
   tgt=off*DEG*Math.PI/180;
   beep(420,.08,'sine',.15);beep(630,.08,'sine',.1,.04);vib(12);
-  if(Math.abs(off)>LIM){
-    const loser=turn;
-    return fall(off>0?1:-1,'¡Se cayó la torre!',
-      loser===meIdx?'La tiraste tú. ¡Gana '+names[1-meIdx]+'!':names[loser]+' la tiró. ¡Ganaste!',1-loser);
+  const bad=unstable(pieces);                       // ¿alguna pieza (o grupo) no se sostiene por gravedad?
+  if(bad||Math.abs(off)>LIM){
+    const loser=turn,dir=bad&&bad.dir?bad.dir:(off>0?1:-1);
+    return fall(dir,'¡Se cayó la torre!',
+      loser===meIdx?(bad?'Tu pieza no se sostuvo. ':'La tiraste tú. ')+'¡Gana '+names[1-meIdx]+'!'
+                   :names[loser]+(bad?' no logró sostener su pieza. ':' la tiró. ')+'¡Ganaste!',1-loser);
   }
   if(Math.abs(off)>LIM*.7)beep(140,.25,'sawtooth',.06,.1);
   nextTurn();
@@ -505,8 +590,13 @@ function playGhost(p,col,row,fn){
 
 /* ---------- amigo en línea ---------- */
 function onGame(d){
-  if(!online||over)return;
-  if(d.left&&d.left!==online.myUid){end('Tu amigo se fue',names[1-meIdx]+' salió de la partida. ¡Ganaste!',meIdx);return}
+  if(!online)return;
+  if(d.left&&d.left!==online.myUid){
+    oppGone=true;
+    if(over){if(rm&&!rm.gone){rm.gone=true;rmPaint()}return}
+    end('Tu amigo se fue',names[1-meIdx]+' salió de la partida. ¡Ganaste!',meIdx);return;
+  }
+  if(over)return;
   const ms=d.moves||[];
   while(seen<ms.length)queue.push(ms[seen++]);
   drain();
@@ -516,10 +606,10 @@ function drain(){
   const m=queue.shift();
   if(m.k!==mv||m.u===online.myUid)return drain();
   const p=tray[m.i];if(!p)return drain();
-  for(let k=0;k<(m.r|0);k++)p.m=rotM(p.m);
-  p.rot=m.r|0;
-  const row=dropRow(p,m.c);if(row<0)return drain();
-  playGhost(p,m.c,row,()=>{place(m.i,m.c,true);drain()});
+  const rot=m.r|0,mm=rotN(p.b,rot);
+  if(typeof m.y!=='number'||!canPut(mm,m.y,m.c))return drain();
+  p.m=mm;p.rot=rot&3;
+  playGhost(p,m.c,m.y,()=>{place(m.i,rot,m.c,m.y,true);drain()});
 }
 
 /* ---------- la IA ---------- */
@@ -530,47 +620,28 @@ function withPiece(c,fn){                           // pone la pieza un momento 
   cs.forEach(([dr,dc])=>{G2[c.row+dr][c.col+dc]=0});
   return v;
 }
-function hasSafe(ps){                               // ¿hay alguna jugada que no tire la torre?
-  return ps.some(p=>{
-    let m=p.m;
-    for(let k=0;k<4;k++){
-      for(let col=0;col<=C-m[0].length;col++){
-        const row=dropRow({m:m},col);
-        if(row>=0&&withPiece({m:m,col:col,row:row},()=>Math.abs(offset())<=LIM))return true;
-      }
-      m=rotM(m);
-    }
-    return false;
-  });
+function hasSafe(ps){                               // ¿hay alguna jugada que no tire la torre? (revisión rápida)
+  const [n,sx]=sums();
+  return ps.some(p=>rots(p).some(o=>spots(o.m).some(([row,col])=>Math.abs(offWith(o.m,col,n,sx))<=LIM&&localOk(o.m,row,col))));
 }
 function aiChoose(){
-  const cands=[];
-  tray.forEach((p,i)=>{
-    let m=p.m;const done={};
-    for(let rot=0;rot<4;rot++){
-      const key=JSON.stringify(m);
-      if(!done[key]){
-        done[key]=1;
-        for(let col=0;col<=C-m[0].length;col++){
-          const row=dropRow({m:m},col);
-          if(row>=0)cands.push({i:i,m:m,rot:rot,col:col,row:row});
-        }
-      }
-      m=rotM(m);
-    }
-  });
-  cands.forEach(c=>{c.off=withPiece(c,()=>offset())});
-  const safe=cands.filter(c=>Math.abs(c.off)<=LIM);
+  const cands=[],[n,sx]=sums();
+  tray.forEach((p,i)=>rots(p).forEach(o=>spots(o.m).forEach(([row,col])=>{
+    cands.push({i:i,m:o.m,rot:o.rot,col:col,row:row,off:offWith(o.m,col,n,sx)});
+  })));
+  const safe=cands.filter(c=>Math.abs(c.off)<=LIM&&localOk(c.m,c.row,c.col)&&!unstable(pieces.concat([{cells:cellsAt(c.m,c.row,c.col)}])));
   if(!safe.length){cands.sort((a,b)=>Math.abs(a.off)-Math.abs(b.off));return cands[0]}   // no hay escapatoria
   if(Math.random()<.15)return safe[Math.random()*safe.length|0];                         // a veces se equivoca
-  safe.forEach(c=>{
+  // hay muchos huecos posibles, así que solo estudia algunas jugadas seguras al azar
+  const pool=safe.slice().sort(()=>Math.random()-.5).slice(0,30);
+  pool.forEach(c=>{
     // prueba piezas al azar: ¿a cuántas el rival ya no les encuentra una jugada segura?
     let stuck=0;const K=8;
     withPiece(c,()=>{for(let k=0;k<K;k++){const t=[newP(),newP(),newP()];if(anyMove(t)&&!hasSafe(t))stuck++}});
     c.score=stuck/K*10-Math.abs(c.off)*.1+Math.random()*.6;
   });
-  safe.sort((a,b)=>b.score-a.score);
-  return safe[0];
+  pool.sort((a,b)=>b.score-a.score);
+  return pool[0];
 }
 function aiPlay(){
   const g=gid;thinking=true;updateInfo();
@@ -579,7 +650,7 @@ function aiPlay(){
     const c=aiChoose();
     thinking=false;
     const p=tray[c.i];p.m=c.m;p.rot=c.rot;
-    playGhost(p,c.col,c.row,()=>place(c.i,c.col,true));
+    playGhost(p,c.col,c.row,()=>place(c.i,c.rot,c.col,c.row,true));
   },600+Math.random()*600);
 }
 function fall(dir,t,m,w){
@@ -684,16 +755,50 @@ function stepBodies(){
     }
   }
 }
+/* cuadro final en línea: "Volver a jugar" con la misma persona */
+function rmPaint(){
+  if(!rm)return;
+  let txt=rm.base;
+  if(rm.gone){if(!/salió/.test(rm.base))txt+='\n'+rm.opp.name+' salió de la partida.'}
+  else if(rm.offer)txt+='\n🔁 '+rm.opp.name+' quiere volver a jugar.';
+  else if(rm.note)txt+='\n'+rm.note;
+  $('em').textContent=txt;$('em').style.whiteSpace='pre-line';
+  const b=$('eb');
+  b.disabled=rm.gone||rm.wait;
+  b.textContent=rm.wait?'Esperando a '+rm.opp.name+'…':'Volver a jugar';
+}
+function closeEnd(){rm=null;$('eb').disabled=false;$('em').style.whiteSpace='';hide()}
 function end(t,m,w){
   over=true;updateInfo();
-  const out=()=>{leave();menu()};
   if(mode===1){
+    const out=()=>{leave();menu()};
     if(w===0){wins++;try{localStorage.setItem('bt_wins',wins)}catch(e){}showBest()}
     show(t,m,'Jugar de nuevo',()=>{hide();start(1)},'Menú',out);
   }else{
     const opp=online&&online.opp;
-    if(online)FB.endGame(online.id);                 // borra el registro de la partida en Firebase
-    show(t,m,'Revancha',()=>{hide();leave();menu();if(opp)FB.invite(opp)},'Menú',out);
+    if(online)FB.endGame(online.id,120000);          // la partida se borra después, para poder volver a jugar
+    const out=()=>{
+      if(window.FB){
+        if(online)FB.leaveGame(online.id);           // avisa al amigo que ya te fuiste
+        if(FB.cancelRematch)FB.cancelRematch();
+      }
+      closeEnd();leave();menu();
+      if(window.FB&&FB.recheckInv)FB.recheckInv();   // por si el amigo te había pedido otra partida
+    };
+    const again=()=>{
+      if(!rm||rm.gone||rm.wait||!window.FB||!FB.rematch)return;
+      rm.wait=true;rm.note='';rmPaint();
+      FB.rematch(rm.opp,(st,txt)=>{
+        if(!rm)return;
+        rm.wait=false;
+        rm.note=txt||(st==='declined'?rm.opp.name+' no quiso jugar otra vez':st==='timeout'?rm.opp.name+' no respondió':'No se pudo empezar');
+        rmPaint();
+      });
+    };
+    show(t,m,'Volver a jugar',again,'Menú',out);
+    rm=opp?{opp:opp,base:m,offer:false,gone:oppGone,wait:false,note:''}:null;
+    rmPaint();
+    if(window.FB&&FB.recheckInv)FB.recheckInv();     // ¿el amigo ya había pedido volver a jugar?
   }
 }
 
@@ -723,59 +828,103 @@ function drawTray(){
 
 /* ---------- arrastrar / girar ---------- */
 const scaleNow=()=>cv.getBoundingClientRect().width/CW;
-function colAt(x,p){
-  const rect=cv.getBoundingClientRect(),lx=(x-rect.left)/(rect.width/CW);
-  const c=Math.round((lx-(OX-C*S/2))/S-p.m[0].length/2);
-  return Math.max(0,Math.min(C-p.m[0].length,c));
+const liftOf=d=>d.touch?S*scaleNow()*1.6:0;          // con el dedo la pieza se ve un poco más arriba
+/* punto de la pantalla -> casilla (con decimales) en la torre, contando la inclinación del balancín */
+function boardPt(x,y){
+  const rect=cv.getBoundingClientRect(),k=rect.width/CW;
+  const px=(x-rect.left)/k-(OX+RR*ang),py=(y-rect.top)/k-OY;
+  const c=Math.cos(ang),s=Math.sin(ang);
+  const lx=px*c+py*s,ly=-px*s+py*c;
+  return[(lx+C*S/2)/S,(ly-YB)/S+R];
+}
+/* la mejor forma de poner la pieza cerca del punto (x,y): prueba todas las rotaciones y huecos cercanos
+   y se queda con la que más se pega a la torre (encaja mejor) sin alejarse mucho del dedo */
+function findSpot(p,x,y){
+  const [fc,fr]=boardPt(x,y),cur=JSON.stringify(p.m);
+  let best=null;
+  rots(p).forEach(o=>{
+    const w=o.m[0].length,h=o.m.length,c0=Math.round(fc-w/2),r0=Math.round(fr-h/2),same=JSON.stringify(o.m)===cur;
+    for(let row=r0-2;row<=r0+2;row++)for(let col=c0-2;col<=c0+2;col++){
+      if(!canPut(o.m,row,col))continue;
+      const d=Math.hypot(col+w/2-fc,row+h/2-fr);
+      if(d>2.4)continue;
+      const bad=!!unstable(pieces.concat([{cells:cellsAt(o.m,row,col)}]));   // ¿se caería por gravedad?
+      const sc=contacts(o.m,row,col)-d*1.5+(same?.4:0)-(bad?6:0);
+      if(!best||sc>best.sc)best={sc:sc,rot:o.rot,m:o.m,row:row,col:col,bad:bad};
+    }
+  });
+  return best;
 }
 function down(e,i){
   if(!canPlay())return;
   e.preventDefault();
-  drag={i:i,sx:e.clientX,sy:e.clientY,x:e.clientX,y:e.clientY,on:false,touch:e.pointerType!=='mouse'};
+  drag={i:i,sx:e.clientX,sy:e.clientY,x:e.clientX,y:e.clientY,on:false,touch:e.pointerType!=='mouse',pl:null,fk:'',fm:null,warn:false};
   window.addEventListener('pointermove',move);
   window.addEventListener('pointerup',up);
   window.addEventListener('pointercancel',stopDrag);
 }
-function startFloat(){
-  const p=tray[drag.i],px=S*scaleNow()-2,el=$('twDrag');
-  trayTop=$('twT').getBoundingClientRect().top;
+function buildFloat(d,m){                      // dibuja la pieza que flota bajo el dedo con la forma indicada
+  const px=S*scaleNow()-2,el=$('twDrag');
   el.innerHTML='';el.style.display='grid';
-  el.style.gridTemplateColumns='repeat('+p.m[0].length+','+px+'px)';
-  p.m.forEach(row=>row.forEach(v=>{
-    const d=document.createElement('div');d.style.height=px+'px';
-    if(v){d.style.background=p.c;d.className='on'}
-    el.appendChild(d);
+  el.style.gridTemplateColumns='repeat('+m[0].length+','+px+'px)';
+  const col=tray[d.i].c;
+  m.forEach(row=>row.forEach(v=>{
+    const c=document.createElement('div');c.style.height=px+'px';
+    if(v){c.style.background=col;c.className='on'}
+    el.appendChild(c);
   }));
+  d.fm=m;d.fk=JSON.stringify(m);
+}
+function startFloat(){
+  trayTop=$('twT').getBoundingClientRect().top;
+  $('twDrag').style.opacity=.85;
+  buildFloat(drag,tray[drag.i].m);
   beep(500,.05,'sine',.08);vib(8);
 }
 function moveFloat(){
-  const p=tray[drag.i],px=S*scaleNow(),el=$('twDrag');
-  const w=p.m[0].length*px,h=p.m.length*px,lift=drag.touch?px*1.6:0;
+  const px=S*scaleNow(),el=$('twDrag'),m=drag.fm;
+  const w=m[0].length*px,h=m.length*px,lift=liftOf(drag);
   el.style.left=(drag.x-w/2)+'px';
   el.style.top=(drag.y-h/2-lift)+'px';
+}
+/* busca dónde encaja la pieza y, si cambia de forma, la gira también bajo el dedo */
+function refreshSpot(d){
+  const p=tray[d.i];
+  d.pl=d.y<trayTop-6?findSpot(p,d.x,d.y-liftOf(d)):null;
+  const m=d.pl?d.pl.m:p.m;
+  if(JSON.stringify(m)!==d.fk)buildFloat(d,m);
+  $('twDrag').style.opacity=d.pl?.3:.85;      // si ya encontró hueco, la sombra de la torre es la que manda
+  const w=!!(d.pl&&d.pl.bad);
+  if(w!==d.warn){d.warn=w;if(w)$('twInfo').textContent='⚠ ¡Se va a caer!';else updateInfo()}
 }
 function move(e){
   if(!drag)return;
   drag.x=e.clientX;drag.y=e.clientY;
   if(!drag.on&&Math.hypot(e.clientX-drag.sx,e.clientY-drag.sy)>10){drag.on=true;startFloat()}
-  if(drag.on)moveFloat();
+  if(drag.on){refreshSpot(drag);moveFloat()}
 }
 function stopDrag(){
   window.removeEventListener('pointermove',move);
   window.removeEventListener('pointerup',up);
   window.removeEventListener('pointercancel',stopDrag);
   $('twDrag').style.display='none';
+  if(drag&&drag.warn)updateInfo();
   drag=null;
 }
 function up(e){
-  const d=drag;stopDrag();
+  const d=drag;
+  if(d&&d.on){d.x=e.clientX;d.y=e.clientY;refreshSpot(d)}
+  stopDrag();
   if(!d||over)return;
   if(!d.on){                                   // un toque: gira la pieza
     tray[d.i].m=rotM(tray[d.i].m);tray[d.i].rot=((tray[d.i].rot||0)+1)%4;
     beep(520,.05,'sine',.08);vib(6);drawTray();
     return;
   }
-  if(e.clientY<trayTop-6)place(d.i,colAt(e.clientX,tray[d.i]));   // soltó sobre la torre
+  if(e.clientY<trayTop-6){                     // soltó sobre la torre
+    if(d.pl)place(d.i,d.pl.rot,d.pl.col,d.pl.row);
+    else{beep(180,.15,'triangle',.1);vib(25)}
+  }
 }
 
 /* ---------- dibujo ---------- */
@@ -799,13 +948,19 @@ function draw(){
     else if(!falling)cell(cx(c),cy(r),v,1);
   }
   let pred=null;
-  if(drag&&drag.on&&!over&&drag.y<trayTop-6){                          // sombra de dónde va a caer
-    const p=tray[drag.i],col=colAt(drag.x,p),r=dropRow(p,col);
-    if(r>=0){
-      cellsOf(p.m).forEach(([dr,dc])=>cell(cx(col+dc),cy(r+dr),p.c,.5));
-      pred=offset(cellsOf(p.m).map(([dr,dc])=>col+dc+.5));
-    }else{
-      cellsOf(p.m).forEach(([dr,dc])=>cell(cx(col+dc),cy(dr),'#c62828',.35));
+  if(drag&&drag.on&&!over&&drag.y<trayTop-6){                          // sombra de dónde va a quedar (ya girada)
+    const p=tray[drag.i];
+    if(drag.pl){
+      const q=drag.pl;
+      cellsOf(q.m).forEach(([dr,dc])=>{
+        cell(cx(q.col+dc),cy(q.row+dr),p.c,.65);
+        if(q.bad){ctx.strokeStyle='#ff1744';ctx.lineWidth=2;ctx.strokeRect(cx(q.col+dc)+1,cy(q.row+dr)+1,S-2,S-2)}
+      });
+      pred=offset(cellsOf(q.m).map(([dr,dc])=>q.col+dc+.5));
+    }else{                                                             // no cabe por aquí: sombra roja
+      const [fc,fr]=boardPt(drag.x,drag.y-liftOf(drag)),w=p.m[0].length,h=p.m.length;
+      const col=Math.max(0,Math.min(C-w,Math.round(fc-w/2))),row=Math.max(0,Math.min(R-1-h,Math.round(fr-h/2)));
+      cellsOf(p.m).forEach(([dr,dc])=>cell(cx(col+dc),cy(row+dr),'#c62828',.35));
     }
   }
   if(ghost)cellsOf(ghost.m).forEach(([dr,dc])=>cell(cx(ghost.col+dc),cy(ghost.r+dr),ghost.c,.55));
@@ -847,7 +1002,11 @@ $('tw2').onclick=()=>{
   FB.openInvite();                                  // elegir a qué amigo invitar
 };
 $('twBack').onclick=()=>{leave();menu()};
-window.TW={startOnline:g=>start(2,g)};
+window.TW={
+  startOnline:g=>start(2,g),
+  rematchOpp:()=>rm&&!rm.gone?rm.opp.uid:'',          // con quién se puede volver a jugar ahora mismo
+  offer:f=>{if(rm&&!rm.gone){rm.offer=!!f;rmPaint()}}  // el amigo pidió (o ya no) volver a jugar
+};
 })();
 </script>
 <script type="module">
@@ -1161,9 +1320,33 @@ function beginGame(id,d,idx){
   });
 }
 // invitaciones que me llegan
+const stale=g=>g.createdAt&&g.createdAt.toMillis&&Date.now()-g.createdAt.toMillis()>120000;
+async function acceptInvite(g){                     // acepta una invitación y empieza la partida
+  doneInv.add(g.id);
+  try{
+    const ref=doc(db,'games',g.id);
+    await runTransaction(db,async tx=>{
+      const s=await tx.get(ref);
+      if(!s.exists()||s.data().status!=='invited')throw new Error('gone');
+      tx.update(ref,{status:'playing'});
+    });
+  }catch(e){return false}
+  closeInv();
+  beginGame(g.id,{...g,status:'playing'},1);
+  return true;
+}
 function checkInv(){
-  const fresh=incoming.filter(g=>g.status==='invited'&&!doneInv.has(g.id)&&
-    !(g.createdAt&&g.createdAt.toMillis&&Date.now()-g.createdAt.toMillis()>120000));
+  let fresh=incoming.filter(g=>g.status==='invited'&&!doneInv.has(g.id)&&!stale(g));
+  // si estoy en el cuadro final de una partida, la invitación de ese mismo amigo es "volver a jugar"
+  const ro=window.TW&&window.TW.rematchOpp?window.TW.rematchOpp():'';
+  if(ro){
+    const o=fresh.find(g=>g.from===ro);
+    window.TW.offer(!!o);
+    if(o&&waitId&&me&&me.uid<ro){                   // los dos pidieron a la vez: el de uid menor acepta la del otro
+      const mine=waitId;stopWait();waitId='';cancelInvite(mine);acceptInvite(o);
+    }
+    fresh=fresh.filter(g=>g.from!==ro);
+  }
   const cur=fresh.find(g=>g.id===shownInv)||fresh[0];
   if(!cur){shownInv='';$('got').classList.remove('on');return}
   shownInv=cur.id;
@@ -1256,7 +1439,30 @@ window.FB={
     updateDoc(doc(db,'games',id),{moves:arrayUnion(m)})
       .catch(e=>alert('No se pudo enviar tu jugada: '+(errs[e.code]||e.code||e.message)));
   },
-  endGame(id){setTimeout(()=>deleteDoc(doc(db,'games',id)).catch(()=>{}),6000)},   // da tiempo a que el otro vea la última jugada
+  endGame(id,ms){setTimeout(()=>deleteDoc(doc(db,'games',id)).catch(()=>{}),ms||6000)},
+  recheckInv(){checkInv()},
+  cancelRematch(){if(waitId)cancelInvite(waitId);stopWait();waitId=''},
+  // "Volver a jugar" con la misma persona: si ya me lo pidió lo acepto; si no, le mando la invitación
+  async rematch(opp,cb){
+    if(!me)return cb('error','Inicia sesión para jugar con tu amigo');
+    stopWait();waitId='';
+    const g=incoming.find(x=>x.status==='invited'&&x.from===opp.uid&&!doneInv.has(x.id)&&!stale(x));
+    if(g){if(!await acceptInvite(g))cb('error','Esa invitación ya no está disponible');return}
+    const id=me.uid+'_'+Date.now();
+    try{
+      await setDoc(doc(db,'games',id),{
+        from:me.uid,to:opp.uid,fromName:me.name,toName:opp.name,
+        seed:(Math.random()*2147483646|0)+1,status:'invited',moves:[],left:'',createdAt:serverTimestamp()
+      });
+    }catch(e){return cb('error',errs[e.code]||('No se pudo invitar: '+(e.code||e.message)))}
+    waitId=id;
+    waitUnsub=onSnapshot(doc(db,'games',id),s=>{
+      const d=s.data();if(!d||waitId!==id)return;
+      if(d.status==='playing'){closeInv();beginGame(id,d,0)}
+      else if(d.status==='declined'){deleteDoc(doc(db,'games',id)).catch(()=>{});stopWait();waitId='';cb('declined')}
+    },()=>{});
+    waitTimer=setTimeout(()=>{cancelInvite(id);waitId='';cb('timeout')},90000);
+  },   // da tiempo a que el otro vea la última jugada
   leaveGame(id){if(me)updateDoc(doc(db,'games',id),{left:me.uid}).catch(()=>{})}
 };
 
